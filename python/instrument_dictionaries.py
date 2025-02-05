@@ -5,80 +5,6 @@ from pyMuellerMat.common_mm_functions import *
 from pyMuellerMat import common_mms as cmm
 from pyMuellerMat import MuellerMat
 
-def perform_optimization(starting_guess, bounds, configurations, data, errors, 
-    system_parameters, tag, S_in=[1, 0, 0, 0]):
-    """
-    Performs optimization using scipy.optimize.minimize to fit specified parameters.
-    Only components with the specified tag will be used in the Mueller matrix.
-
-    Args:
-        starting_guess: Initial parameter guesses.
-        bounds: Parameter bounds for the optimizer.
-        configurations: List of system configurations.
-        data: List of observed data for comparison.
-        errors: List of errors associated with the data.
-        system_parameters: List of [component_name, parameter_name] pairs.
-        tag: Tag to filter components in the Mueller matrix.
-        S_in: Input Stokes vector (default: unpolarized light).
-    """
-
-    def filter_system_dict_by_tag(system_dict, tag):
-        """
-        Filters a system dictionary to include only components with the given tag.
-        """
-        filtered_components = {
-            name: details
-            for name, details in system_dict["components"].items()
-            if details.get("tag") == tag
-        }
-        filtered_order = [name for name in system_dict["order"] if name in filtered_components]
-
-        return {
-            "components": filtered_components,
-            "order": filtered_order,
-        }
-
-    def model(parameters, config):
-        """
-        Generate model output for a given parameter set and configuration.
-        """
-        # Filter the system dictionary by tag
-        filtered_config = filter_system_dict_by_tag(config, tag)
-
-        # Parse parameters into component:property mapping
-        parameter_values = {}
-        for (component, property_name), value in zip(system_parameters, parameters):
-            if component not in parameter_values:
-                parameter_values[component] = {}
-            parameter_values[component][property_name] = value
-
-        # Update the system configuration with the current parameters
-        system_mm = generate_system_mueller_matrix(filtered_config)
-        systemMM_updated = update_systemMM(parameter_values, system_mm, system_parameters)
-
-        # Generate measurement
-        return generate_measurement(systemMM_updated, S_in)
-
-    def objective_function(params):
-        """
-        Objective function to minimize: chi-squared between model and data.
-        """
-        chi_squared = 0
-        for i, config in enumerate(configurations):
-            model_output = model(params, config)
-            chi_squared += np.sum(((model_output - data[i]) / errors[i]) ** 2)
-        return chi_squared
-
-    # Perform optimization
-    result = minimize(
-        objective_function,
-        starting_guess,
-        bounds=bounds,
-        method="Nelder-Mead",
-    )
-
-    return result
-
 def generate_system_mueller_matrix(system_dict):
     """
     Parses a system dictionary and generates a System Mueller Matrix object.
@@ -123,34 +49,28 @@ def generate_system_mueller_matrix(system_dict):
     system_mm = MuellerMat.SystemMuellerMatrix(mueller_matrices)
     return system_mm
 
-def update_systemMM(parameter_values, systemMM, system_parameters):
+def update_system_mm(parameter_values, system_mm):
     """
-    Generates a model dataset for the given set of parameters.
+    Updates the system Mueller matrix with the given parameter values.
 
-    Args: 
-        parameter_values: dictionary of parameter values to update.
-        systemMM: pyMuellerMat System Mueller Matrix object.
-        system_parameters: list of two-element lists [component_name, parameter_name]
-                           example: [['Polarizer', 'Theta'], ['Polarizer', 'Phi']]
+    Args:
+        parameter_values: Dictionary of parameter values to update, where keys are tuples of (component_name, parameter_name).
+        system_mm: pyMuellerMat System Mueller Matrix object.
     """
-    # Set up the System Mueller Matrix
-    for component_name, parameter_name in system_parameters:
+    # Iterate over the parameter updates
+    for (component_name, parameter_name), value in parameter_values.items():
         # Check if the component and parameter exist in the systemMM
-        if component_name in systemMM.master_property_dict:
-            if parameter_name in systemMM.master_property_dict[component_name]:
+        if component_name in system_mm.master_property_dict:
+            if parameter_name in system_mm.master_property_dict[component_name]:
                 # Update the parameter
-                systemMM.master_property_dict[component_name][parameter_name] = parameter_values.get(
-                    (component_name, parameter_name),
-                    systemMM.master_property_dict[component_name][parameter_name],
-                )
+                system_mm.master_property_dict[component_name][parameter_name] = value
             else:
                 print(f"Parameter '{parameter_name}' not found in component '{component_name}'. Skipping...")
         else:
             print(f"Component '{component_name}' not found in System Mueller Matrix. Skipping...")
+    return system_mm
 
-    return systemMM
-
-def generate_measurement(systemMM, S_in=[1,0,0,0]):
+def generate_measurement(system_mm, s_in = [1, 0, 0, 0]):
     '''
     Generate a measurement from a given System Mueller Matrix
 
@@ -161,92 +81,88 @@ def generate_measurement(systemMM, S_in=[1,0,0,0]):
     Returns: 
     S_out: Stokes vector of the outgoing light
     '''
-    output_stokes = systemMM.evaluate() @ np.array(S_in)
-    return output_stokes #This is probably systeMM.evaluate@np.array(S_in)
+    output_stokes = system_mm.evaluate() @ np.array(s_in)
+    return output_stokes
 
-def mcmc_system_mueller_matrix(p0, systemMM, dataset, errors, configuration_list):
-    # TODO: Needs to be filled out more
-    '''
-    Perform MCMC on a dataset, using a System Mueller Matrix model
+# NOTE: This will be used as the "parse_dataset" function to when performing optimizations
+def calculate_double_differences_and_sums(configurations, system_mm, s_in = [1, 0, 0, 0]):
+    normalized_double_diff_list = []
+    normalized_double_sum_list = []
+    """
+    Args:
+        configurations (list): List of system configurations (dictionaries) corresponding to 
+        the desired input for update_system_mm
+    """
 
-    Example p0: 
+    for i, configuration in enumerate(configurations):
+        this_system_mm = update_system_mm(configuration, system_mm)
 
-    p0 = {'Polarizer': {'Theta': 0, 'Phi': 0},
-          'Waveplate': {'Theta': 0, 'Phi': 0},
-          'Retarder': {'Theta': 0, 'Phi': 0},
-          'Sample': {'Theta': 0, 'Phi': 0},
-          'Analyzer': {'Theta': 0, 'Phi': 0}}
+        system_mm_FL1 = update_system_mm({["flc", "theta"]: 0, ["wollaston", "beam"]: "o"}, system_mm)
+        FL1 = generate_measurement(system_mm_FL1)
+        system_mm_FR1 = update_system_mm({["flc", "theta"]: 45, ["wollaston", "beam"]: "o"}, system_mm)
+        FR1 = generate_measurement(system_mm_FR1)
+        system_mm_FL1 = update_system_mm({["flc", "theta"]: 0, ["wollaston", "beam"]: "e"}, system_mm)
+        FL2 = generate_measurement(system_mm_FL1)
+        system_mm_FR1 = update_system_mm({["flc", "theta"]: 45, ["wollaston", "beam"]: "e"}, system_mm)
+        FR2 = generate_measurement(system_mm_FR1)
 
-    Args: 
-    p0: dictionary of dictionaries of initial parameters
-    systemMM: pyMuellerMat System Mueller Matrix object
-    dataset: list of measurements
-    configuration_list: list of system dictionaries, one for each measurement in dataset
-    '''
+        normalized_double_diff = ((FL1 - FR1) - (FL2 - FR2)) / ((FL1 + FR1) + (FL2 + FR2))
+        normalized_double_sum = ((FL1 - FR1) + (FL2 - FR2)) / ((FL1 + FR1) + (FL2 + FR2))
 
-    #####################################################
-    ###### First, define the data model based on p0 #####
-    #####################################################
+        normalized_double_diff_list.append(normalized_double_diff)
+        normalized_double_sum_list.append(normalized_double_sum)
 
-    #Parse p0 into a list of values and a list of lists of keywords
-    p0_values = []
-    p0_keywords = []
-    for component, parameters in p0.items():
-        for parameter, value in parameters.items():
-            p0_values.append(value)
-            p0_keywords.append([component, parameter])
+    # TODO: Return this as one long concatenated numpy array, with double_diffs first
 
-    #TODO: Fill this out more. 
+def logl(p, systemMM, data, errors, configurations, 
+    logl_function=None, parse_dataset=None):
+    # TODO: Is p used in the default lg likelihood right now?
 
-def parse_configuration(configuration):
-    '''
-    Parse a configuration dictionary into a list of values and a list of lists of keywords
+    """
+    Log-likelihood function for MCMC scipy.minimize
 
-    Args: 
-    configuration: dictionary of dictionaries of initial parameters
+    This function evaluates the log-likelihood by updating the system Mueller matrix
+    with the given parameters, generating model predictions, and comparing them 
+    to the observed dataset.
 
-    Returns: 
-    values: list of values
-    keywords: list of lists of keywords
-    '''
-    values = []
-    keywords = []
-    for component, parameters in configuration.items():
-        for parameter, value in parameters.items():
-            values.append(value)
-            keywords.append([component, parameter])
-    return values, keywords
+    Args:
+        p (list): List of parameters being optimized.
+        systemMM (SystemMuellerMatrix): The Mueller matrix system model.
+        data (list): List of observed measurements.
+        errors (list): List of measurement uncertainties.
+        configurations (list): List of system configurations corresponding to `data`.
+        logl_function (function, optional): Custom log-likelihood function.
+        parse_dataset (function, optional): Function to transform dataset before computing likelihood.
 
-def logl(p, system_parameters, systemMM, dataset, errors, configuration_list, logl_function = None, parse_dataset = None):
-    '''
-    Log likelihood function for MCMC
-
-    Args: 
-    p: list of parameters
-    systemMM: pyMuellerMat System Mueller Matrix object
-    dataset: list of measurements
-
-    Returns: 
-    logl: log likelihood
-    '''
-    #Update the system Mueller matrix with parameters that we're fitting
-    systemMM = update_systemMM(p, systemMM, system_parameters)
-
-    #Generate a model dataset
+    Returns:
+        float: Log-likelihood value.
+    """
+    # Intensities data list
     output_intensities = []
-    for i in range(len(dataset)):
-        configuration = parse_configuration(configuration_list[i])
-        systemMM = update_systemMM(configuration[0], systemMM, configuration[1])
-        S_out = generate_measurement(systemMM, dataset[i][0])
+
+    # Update the system Mueller matrix with parameters that we're fitting
+    systemMM = update_systemMM(parameter_values, systemMM)
+
+    # Ensure configurations is a list of system_dicts
+    if not isinstance(configurations, list):
+        raise ValueError("configurations should be a list of system dictionaries.")
+
+    output_intensities = []
+    for i, configuration in enumerate(configurations):
+        system_dict = configurations[i]
+        configuration = parse_configuration(system_dict)  # This is a single dictionary
+        systemMM = update_systemMM(configuration[0], systemMM)
+        S_out = generate_measurement(systemMM, data[i][0])
         output_intensities.append(S_out[0])
 
-    #Optionally parse the dataset and output intensities (e.g. a normalized difference)
+    # Optionally parse the dataset and output intensities (e.g., normalized difference)
     if parse_dataset is not None:
-        dataset = parse_dataset(copy.deepcopy(dataset))
+        data = parse_dataset(copy.deepcopy(data))
         output_intensities = parse_dataset(output_intensities)
 
-    #Calculate the log likelihood - optionally with your own logl function (e.g. to include an extra noise term in p)
+    # Compute log-likelihood
     if logl_function is not None:
-        return logl_function(p, output_intensities, dataset, errors)
-    else: 
-        return -0.5 * np.sum((np.array(output_intensities) - np.array(dataset))**2 / np.array(errors)**2)
+        return logl_function(p, output_intensities, data, errors)
+    else:
+        return -0.5 * np.sum(((np.array(output_intensities) - np.array(data)) ** 2) / (np.array(errors) ** 2))
+
