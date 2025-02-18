@@ -64,6 +64,16 @@ def mcmc_system_mueller_matrix(p0, systemMM, dataset, errors, configuration_list
 
     #TODO: Fill this out more. 
 
+
+def minimize_system_mueller_matrix(p0, systemMM, dataset, errors, configuration_list):
+    '''
+    Perform a minimization on a dataset, using a System Mueller Matrix model'''
+
+    p0_values, p0_keywords = parse_configuration(p0)
+
+    result = minimize(logl, p0_values, args=(p0_keywords, systemMM, dataset, errors, configuration_list), method='Nelder-Mead')
+
+
 def parse_configuration(configuration):
     '''
     Parse a configuration dictionary into a list of values and a list of lists of keywords
@@ -83,12 +93,13 @@ def parse_configuration(configuration):
             keywords.append([component, parameter])
     return values, keywords
 
-def logl(p, system_parameters, systemMM, dataset, errors, configuration_list, logl_function = None, parse_dataset = None):
+def logl(p, system_parameters, systemMM, dataset, errors, configuration_list, logl_function = None, process_dataset = None, process_model = None):
     '''
     Log likelihood function for MCMC
 
     Args: 
     p: list of parameters
+    system_parameters: the list of dictionaries that define what the p parameters are. 
     systemMM: pyMuellerMat System Mueller Matrix object
     dataset: list of measurements
 
@@ -107,12 +118,54 @@ def logl(p, system_parameters, systemMM, dataset, errors, configuration_list, lo
         output_intensities.append(S_out[0])
 
     #Optionally parse the dataset and output intensities (e.g. a normalized difference)
-    if parse_dataset is not None:
-        dataset = parse_dataset(copy.deepcopy(dataset))
-        output_intensities = parse_dataset(output_intensities)
+    if process_dataset is not None:
+        dataset = process_dataset(copy.deepcopy(dataset))
+    if process_model is not None:
+        output_intensities = process_model(output_intensities)
 
     #Calculate the log likelihood - optionally with your own logl function (e.g. to include an extra noise term in p)
     if logl_function is not None:
         return logl_function(p, output_intensities, dataset, errors)
     else: 
         return -0.5 * np.sum((np.array(output_intensities) - np.array(dataset))**2 / np.array(errors)**2)
+    
+
+    def build_differences_and_sums(intensities):
+        '''
+        Assume that the input intensities are organized in pairs. Such that
+        '''
+
+        differences = intensities[::2]-intensities[1::2]
+        sums = intensities[::2]+intensities[1::2]
+
+        return differences, sums
+    
+    def build_double_differences_and_sums(differences, sums):
+        '''
+        Assume that the input intensities are organized in pairs. Such that
+        '''
+
+        double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
+        double_sums = (sums[::2]-sums[1::2])/(sums[::2]+sums[1::2])
+
+        return double_differences, double_sums
+    
+
+    def process_model(model_intensities):
+
+        differences, sums = build_differences_and_sums(model_intensities)
+
+        double_differences, double_sums = build_double_differences_and_sums(differences, sums)
+
+        #Format this into one array. 
+        return output
+    
+    def process_dataset(input_dataset): 
+
+        differences = input_dataset[::2]
+        sums = input_dataset[1::2]
+
+        double_differences, double_sums = build_double_differences_and_sums(differences, sums)
+
+        #Format this into one array.
+        return output 
