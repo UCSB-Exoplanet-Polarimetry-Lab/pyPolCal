@@ -20,12 +20,11 @@
 # Step 4: 
     # Decide which parameters we're fitting by creating a dictionary of p0 starting guesses. 
     #     Example p0:
-    #  p0 = {'Polarizer': {'Theta': 0},
-    #       'Waveplate': {'Phi': 0},
-    #       'Waveplate': {'Theta': 0},
-    #       'Retarder': {'Theta': 0},
-    #       'Sample': {''Phi': 0},
-    #       'Analyzer': {'Phi': 0}}
+    # p0 = {'Polarizer': {'Theta': 0, 'Phi': 0},
+        #   'Waveplate': {'Theta': 0, 'Phi': 0},
+        #   'Retarder': {'Theta': 0, 'Phi': 0},
+        #   'Sample': {'Theta': 0, 'Phi': 0},
+        #   'Analyzer': {'Theta': 0, 'Phi': 0}}
 
 # Step 5: 
     # Pass this all in to minimize_system_mueller_matrix. 
