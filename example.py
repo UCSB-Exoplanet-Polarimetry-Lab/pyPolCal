@@ -6,7 +6,6 @@
 
 # Step 1 reads in the csv. 
 
-
 # Step 2: Define a system Muller Matrix object
 # This will include all of the optical components. And set any fixed values .
 
