@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pyMuellerMat
 from pyMuellerMat.common_mm_functions import *
 from pyMuellerMat import common_mms as cmm
 from pyMuellerMat import MuellerMat
@@ -9,20 +10,7 @@ import copy
 ###### Functions related to reading in .csv values ####
 #######################################################
 
-def read_and_interleave_csv_data(file_path, obs_filter = None):
-    """
-    Reads a CSV file and extracts the columns "diff", "sum", "diff_std", and "sum_std".
-    It then interleaves values from "diff" and "sum" into one NumPy array,
-    and interleaves values from "diff_std" and "sum_std" into another NumPy array.
-
-    Args:
-        file_path (str): Path to the CSV file.
-
-    Returns:
-        tuple: Two NumPy arrays:
-            - The first array contains interleaved values of "diff" and "sum".
-            - The second array contains interleaved values of "diff_std" and "sum_std".
-    """
+def read_csv(file_path, obs_filter = None):
     # Read CSV file
     df = pd.read_csv(file_path)
     
@@ -36,61 +24,34 @@ def read_and_interleave_csv_data(file_path, obs_filter = None):
     # Interleave values from "diff_std" and "sum_std"
     interleaved_stds = np.ravel(np.column_stack((df["diff_std"], df["sum_std"])))
 
-    return interleaved_values, interleaved_stds   
-
-def read_csv_configuration_data(file_path, obs_filter = None):
-    """
-    Reads a CSV file, filters for a specified observation filter, and outputs a
-    list of dictionaries correspoding to the HWP, IMR, and FLC configurations.
-
-    Args:
-        file_path (str): Path to the CSV file.
-        obs_filter (str, optional): Value to filter in the "FILTER01" column.
-
-    Returns:
-        list: List of dictionaries in the same format as any system_dictionary
-    """
-    # Read CSV file
-    df = pd.read_csv(file_path)
-
-    # Process only one filter if applicable
-    if obs_filter is not None:
-        df = df[df["FILTER01"] == obs_filter]
-
     # Convert each row's values into a list of two-element lists
     configuration_list = []
     for index, row in df.iterrows():
         # Extracting values from relevant columns
-        HWP_theta = row["RET-POS1"]
-        IMR_theta = row["D_IMRANG"]
-        FLC_theta = row["U_FLC"]
+        hwp_theta = row["RET-POS1"]
+        imr_theta = row["D_IMRANG"]
+        flc_theta = row["U_FLC"]
 
-        if FLC_theta == "A":
-            FLC_theta = 0
-        elif FLC_theta == "B":
-            FLC_theta = 2 * np.pi * np.radians(45)
+        if flc_theta == "A":
+            flc_theta = 0
+        elif flc_theta == "B":
+            flc_theta = 45
 
-        # Building dictoinary
+        # Building dictionary
         row_data = {}
-        row_data["HWP"] = {
-            "type": "Retarder",
-            "properties": {"theta": HWP_theta},
-            "tag": "internal"
+        row_data["hwp"] = {
+            "properties": {"theta": hwp_theta},
         }
-        row_data["IMR"] = {
-            "type": "Retarder",
-            "properties": {"theta": IMR_theta},
-            "tag": "internal"
+        row_data["image_rotator"] = {
+            "properties": {"theta": imr_theta},
         }
-        row_data["FLC"] = {
-            "type": "Retarder",
-            "properties": {"theta": FLC_theta},
-            "tag": "internal"
+        row_data["flc"] = {
+            "properties": {"theta": flc_theta},
         }
 
         configuration_list.append(row_data)
 
-    return configuration_list
+    return interleaved_values, interleaved_stds, configuration_list
 
 ########################################################################################
 ###### Functions related to defining, updating, and parsing instrument dictionaries ####
@@ -110,31 +71,38 @@ def generate_system_mueller_matrix(system_dict):
     mueller_matrices = []
     
     # Parse the components and construct individual MuellerMatrix objects
-    for component_name in system_dict["order"]:
-        if component_name not in system_dict["components"]:
-            raise ValueError(f"Component '{component_name}' is missing in 'components'.")
+    for component_name, component in system_dict["components"].items():
+        component_type_str = component["type"]  # Extract the string name of the function
+
+        # Convert string to actual function in pyMuellerMat.common_mm_functions
+        try:
+            component_function = getattr(pyMuellerMat.common_mm_functions, component_type_str)
+        except AttributeError:
+            print(f"Error: '{component_type_str}' is not a valid function in pyMuellerMat.common_mm_functions and will be skipped.")
+            continue  # Skip this component if function not found
         
-        component = system_dict["components"][component_name]
-        component_type = component["type"]
-        properties = component["properties"]
+        # Create MuellerMatrix object with the retrieved function
+        try:
+            mm = MuellerMat.MuellerMatrix(component_function, name=component_name)
+        except TypeError as e:
+            print(f"TypeError for component '{component_name}' with function '{component_function}': {e}")
+            continue  # Skip if an error occurs
+
+        # Check and filter valid properties
+        if "properties" in component:
+            valid_properties = {key: value for key, value in component["properties"].items() if key in mm.properties}
+            invalid_properties = {key: value for key, value in component["properties"].items() if key not in mm.properties}
+
+            if invalid_properties:
+                print(f"Warning: Component '{component_name}' has invalid properties {list(invalid_properties.keys())}. "
+                      f"These properties will be ignored.")
+
+            if valid_properties:
+                mm.properties.update(valid_properties)
+            else:
+                print(f"Warning: Component '{component_name}' has no valid properties and will be skipped.")
+                continue  # Skip adding the component if no valid properties exist
         
-        # Map the component type to its corresponding function
-        if component_type == "Rotator":
-            mm_function = rotator_function
-        elif component_type == "DiattenuatorRetarder":
-            mm_function = diattenuator_retarder_function
-        elif component_type == "Retarder":
-            mm_function = general_retarder_function
-        elif component_type == "WollastonPrism":
-            mm_function = wollaston_prism_function
-        elif component_type == "LinearPolarizer":
-            mm_function = general_linear_polarizer_function_with_theta
-        else:
-            raise ValueError(f"Unknown component type: {component_type}")
-        
-        # Create a MuellerMatrix object for this component
-        mm = MuellerMat.MuellerMatrix(mm_function, name=component_name)
-        mm.properties.update(properties)  # Set properties for the component
         mueller_matrices.append(mm)
     
     # Create the SystemMuellerMatrix object from the list of MuellerMatrix objects
