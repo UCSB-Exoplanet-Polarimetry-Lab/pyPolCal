@@ -70,8 +70,8 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
 
         # Building dictionary
         row_data = {
-            "hwp": {"properties": {"theta": hwp_theta}},
-            "image_rotator": {"properties": {"theta": imr_theta}}
+            "hwp": {"theta": hwp_theta},
+            "image_rotator": {"theta": imr_theta}
         }
 
         configuration_list.append(row_data)
@@ -216,19 +216,34 @@ def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_lis
 
     #TODO: Fill this out more. 
 
-
-def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_list):
+def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, 
+                                   configuration_list, s_in = None):
     '''
-    Perform a minimization on a dataset, using a System Mueller Matrix model'''
+    Perform a minimization on a dataset, using a System Mueller Matrix model
+    Args:
+        p0: Initial parameter dictionary
+        system_mm: System Mueller Matrix object
+        dataset: List of measured data
+        errors: List of measurement errors
+        configuration_list: Instrument configuration for each measurement
+        s_in: (Optional) Input Stokes vector (default: [1, 0, 0, 0])
+    '''
+    
+    if s_in is None:
+        s_in = np.array([1, 0, 0, 0])  # Default s_in
 
     p0_values, p0_keywords = parse_configuration(p0)
 
-    print("p0_values: " + str(p0_values))
-    print("p0_keywords: " + str(p0_keywords))
+    print("p0_values: ", p0_values)
+    print("p0_keywords: ", p0_keywords)
 
-    result = minimize(logl, p0_values, args=(p0_keywords, system_mm, dataset, errors, configuration_list), method='Nelder-Mead')
+    # Running scipy.minimize
+    result = minimize(logl, p0_values, 
+                      args=(p0_keywords, system_mm, dataset, errors, configuration_list, s_in), 
+                      method='Nelder-Mead')
 
     return result
+
 
 def parse_configuration(configuration):
     '''
@@ -245,7 +260,7 @@ def parse_configuration(configuration):
     keywords = []
 
     for component, details in configuration.items():
-        for parameter, value in details["properties"].items():
+        for parameter, value in details.items():
             values.append(value)
             keywords.append([component, parameter])
 
@@ -255,39 +270,12 @@ def parse_configuration(configuration):
 ###### Functions related to fitting ####################################################
 ########################################################################################
 
-def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_list):
-    '''
-    Perform a minimization on a dataset, using a System Mueller Matrix model
-    '''
+def model(p, system_parameters, system_mm, configuration_list, s_in=None, 
+        process_model = None):
+    # Default s_in if not provided
+    if s_in is None:
+        s_in = np.array([1, 0, 0, 0])
 
-    p0_values, p0_keywords = parse_configuration(p0)
-
-    print("p0_values: " + str(p0_values))
-    print("p0_keywords: " + str(p0_keywords))
-
-    result = minimize(logl, p0_values, args=(p0_keywords, system_mm, dataset, errors, configuration_list), method='Nelder-Mead')
-
-    return result
-
-def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
-        logl_function = None, process_dataset = None, process_model = None):
-    '''
-    Log likelihood function for MCMC
-
-    Args: 
-    p: list of parameters
-    system_parameters: the list of dictionaries that define what the p parameters are
-    system_mm: pyMuellerMat System Mueller Matrix object
-    dataset: list of measurements - includes both double and single differences
-    for new VAMPIRES
-    errors: same length as list of measurements
-    confifugration_list: list of dictionaries
-    logl_function: for calculating residuls differently
-    process dataset:
-
-    Returns: 
-    logl: log likelihood (float)
-    '''
     # Update the system Mueller matrix with parameters that we're fitting
     system_mm = update_system_mm(p, system_parameters, system_mm)
 
@@ -295,47 +283,67 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     output_intensities = []
 
     # Save the parameters necessary to switch between o and e beam
-    o_beam_values, wollaston_beam_keyword = parse_configuration({'wollaston': {'properties': {'beam': 'o'}}})
-    e_beam_values, wollaston_beam_keyword = parse_configuration({'wollaston': {'properties': {'beam': 'e'}}})
-
-    # print("Dataset Length: " + str(np.shape(dataset)))
-    # print("Configuration Length: " + str(np.shape(configuration_list)))
+    o_beam_values, wollaston_beam_keyword = parse_configuration({'wollaston': {'beam': 'o'}})
+    e_beam_values, wollaston_beam_keyword = parse_configuration({'wollaston': {'beam': 'e'}})
 
     for i in range(len(configuration_list)):
         values, keywords = parse_configuration(configuration_list[i])
+        system_mm = update_system_mm(values, keywords, system_mm)
 
         # Compute the intensity for the ordinary beam
         system_mm = update_system_mm(o_beam_values, wollaston_beam_keyword, system_mm)
-        s_out_o = generate_measurement(system_mm, s_in = np.array([1, 1, 0, 0]))
+        s_out_o = generate_measurement(system_mm, s_in)
         o_intensity = s_out_o[0]
 
         # Compute the intensity for the extraordinary beam
         system_mm = update_system_mm(e_beam_values, wollaston_beam_keyword, system_mm)
-        s_out_e = generate_measurement(system_mm, s_in = np.array([1, 1, 0, 0]))
+        s_out_e = generate_measurement(system_mm, s_in)
         e_intensity = s_out_e[0]
 
         output_intensities.append(o_intensity)
         output_intensities.append(e_intensity)
 
-    # Optionally parse the dataset and output intensities (e.g. a normalized difference)
-    if process_dataset is not None:
-        dataset = process_dataset(copy.deepcopy(dataset))
+    # Optionally parse the intensities into another variable (e.g., normalized difference)
     if process_model is not None:
         output_intensities = process_model(output_intensities)
 
-    # Making sure any lists are converted to numpy arrays
+    # Convert intensities list to numpy arrays
     output_intensities = np.array(output_intensities)
+
+    return output_intensities
+
+def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
+         s_in=None, logl_function=None, process_dataset=None, process_model=None):
+    '''
+    Log likelihood function for MCMC
+    Args:
+        p: List of parameters
+        system_parameters: List defining parameter mappings
+        system_mm: System Mueller Matrix object
+        dataset: List of measurements
+        errors: Measurement errors
+        configuration_list: List of dictionaries with configurations
+        s_in: (Optional) Input Stokes vector (default: [1, 0, 0, 0])
+    Returns:
+        log likelihood (float)
+    '''
+    # Generating a list of model predicted values for each configuration - already parsed
+    output_intensities = model(p, system_parameters, system_mm, configuration_list, 
+        s_in=s_in, process_model=process_model)
+
+    # Optionally parse the dataset and output intensities (e.g., normalized difference)
+    if process_dataset is not None:
+        dataset = process_dataset(copy.deepcopy(dataset))
+
+    # Convert lists to numpy arrays
     dataset = np.array(dataset)
     errors = np.array(errors)
 
-    # Calculate the log likelihood - optionally with your own logl function (e.g. to include an extra noise term in p)
+    # Calculate log likelihood
     if logl_function is not None:
         return logl_function(p, output_intensities, dataset, errors)
     else: 
-        # print("Output Intensities Datatype: " + str(output_intensities.dtype))
-        # print("Dataset Datatype: " + str(dataset.dtype))
-        # print("Errors Datatype: " + str(errors.dtype))
-        return -0.5 * np.sum((np.array(output_intensities) - np.array(dataset)) ** 2 / np.array(errors) ** 2)
+        return -0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
 
 def build_differences_and_sums(intensities):
     '''
