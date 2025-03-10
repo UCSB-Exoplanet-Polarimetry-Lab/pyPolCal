@@ -5,55 +5,53 @@ from pyMuellerMat.common_mm_functions import *
 from pyMuellerMat import common_mms as cmm
 from pyMuellerMat import MuellerMat
 from scipy.optimize import minimize
+import ast
 import copy
 
 #######################################################
 ###### Functions related to reading in .csv values ####
 #######################################################
 
+# Function to safely parse the stored array-like strings
+def parse_array_string(x):
+    if isinstance(x, str):
+        x = x.strip("[]")  # Remove brackets
+        try:
+            return np.array([float(i) for i in x.split()])  # Convert space-separated numbers to float
+        except ValueError:
+            return np.nan  # Return NaN if conversion fails
+    elif isinstance(x, (list, np.ndarray)):
+        return np.array(x)  # Already in the correct format
+    return np.nan  # If neither, return NaN
+
 # TODO: Test the MBI function
 def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
     # Read CSV file
     df = pd.read_csv(file_path)
     
-    MBI_filters = ["610", "670", "720", "760"]
+    MBI_filters = [610, 670, 720, 760]
 
     # Process only one filter if applicable
     if obs_mode == "MBI":
+        MBI_index = MBI_filters.index(obs_filter)
         df = df[df["OBS-MOD"] == "IPOL_MBI"]
     elif obs_filter is not None:
         df = df[df["FILTER01"] == obs_filter]
+
+    print(type(df["diff"].iloc[0]))
 
     # Convert relevant columns to float (handling possible conversion errors)
     for col in ["RET-POS1", "D_IMRANG"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible
 
-    # Drop rows with NaN values if conversion failed for any critical column
-    df.dropna(subset=["RET-POS1", "D_IMRANG"], inplace=True)
-
-    # Handle MBI mode: extract the correct component from numpy arrays
+    # Handle MBI mode: Convert stored strings to arrays and extract MBI_index-th value
     if obs_mode == "MBI":
-        if obs_filter not in MBI_filters:
-            raise ValueError(f"Invalid obs_filter '{obs_filter}' for MBI mode. Choose from {MBI_filters}.")
-
-        i = MBI_filters.index(obs_filter)  # Get the index corresponding to the filter
-        
-        # Convert diff-related columns into numpy arrays if not already
         for col in ["diff", "sum", "diff_std", "sum_std"]:
-            df[col] = df[col].apply(lambda x: np.array(eval(x)) if isinstance(x, str) else x)
-        
-        # Extract the i-th element from each numpy array
-        df["diff"] = df["diff"].apply(lambda arr: arr[i] if isinstance(arr, np.ndarray) and len(arr) > i else np.nan)
-        df["sum"] = df["sum"].apply(lambda arr: arr[i] if isinstance(arr, np.ndarray) and len(arr) > i else np.nan)
-        df["diff_std"] = df["diff_std"].apply(lambda arr: arr[i] if isinstance(arr, np.ndarray) and len(arr) > i else np.nan)
-        df["sum_std"] = df["sum_std"].apply(lambda arr: arr[i] if isinstance(arr, np.ndarray) and len(arr) > i else np.nan)
-
-    # Convert diff-related columns to numeric after extracting values
-    for col in ["diff", "sum", "diff_std", "sum_std"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # Drop rows with NaN values in critical columns
-    df.dropna(subset=["diff", "sum", "diff_std", "sum_std"], inplace=True)
+            df[col] = df[col].apply(parse_array_string)  # Convert string to array
+            df[col] = df[col].apply(lambda x: x[MBI_index] if isinstance(x, np.ndarray) and len(x) > MBI_index else np.nan)  # Extract MBI_index-th element safely
+    else:
+       for col in ["diff", "sum", "diff_std", "sum_std"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible 
 
     # Interleave values from "diff" and "sum"
     interleaved_values = np.ravel(np.column_stack((df["diff"].values, df["sum"].values)))
@@ -74,6 +72,7 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
             "image_rotator": {"theta": imr_theta}
         }
 
+        # Append two configurations for diff and sum
         configuration_list.append(row_data)
 
     return interleaved_values, interleaved_stds, configuration_list
