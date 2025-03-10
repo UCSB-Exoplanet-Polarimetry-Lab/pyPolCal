@@ -5,8 +5,8 @@ from pyMuellerMat.common_mm_functions import *
 from pyMuellerMat import common_mms as cmm
 from pyMuellerMat import MuellerMat
 from scipy.optimize import minimize
-import ast
 import copy
+from collections import defaultdict
 
 #######################################################
 ###### Functions related to reading in .csv values ####
@@ -76,6 +76,59 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
         configuration_list.append(row_data)
 
     return interleaved_values, interleaved_stds, configuration_list
+
+# NOTE: Under construction. Currently accidentally combines all FLC states together
+def consolidate_measurements(interleaved_values, interleaved_stds, configuration_list):
+    """
+    Consolidates interleaved values and stds by computing the median separately for differences and sums.
+    
+    Parameters:
+        interleaved_values (np.ndarray): Array of interleaved values (diff, sum pairs).
+        interleaved_stds (np.ndarray): Array of interleaved standard deviations (diff_std, sum_std pairs).
+        configuration_list (list of dict): List of configuration dictionaries.
+    
+    Returns:
+        tuple: (new_interleaved_values, new_interleaved_stds, new_configuration_list)
+    """
+    
+    # Group configurations by unique (hwp["theta"], image_rotator["theta"]) pairs
+    grouped_data = defaultdict(lambda: {"diffs": [], "sums": [], "diff_stds": [], "sum_stds": []})
+    
+    # Iterate through configurations and group associated values/stds
+    for i in range(len(configuration_list)):
+        key = (configuration_list[i]["hwp"]["theta"], configuration_list[i]["image_rotator"]["theta"])
+        
+        # Extract difference and sum separately
+        diff_value, sum_value = interleaved_values[2 * i], interleaved_values[2 * i + 1]
+        diff_std, sum_std = interleaved_stds[2 * i], interleaved_stds[2 * i + 1]
+        
+        grouped_data[key]["diffs"].append(diff_value)
+        grouped_data[key]["sums"].append(sum_value)
+        grouped_data[key]["diff_stds"].append(diff_std)
+        grouped_data[key]["sum_stds"].append(sum_std)
+
+    # Compute the median for each group
+    new_interleaved_values = []
+    new_interleaved_stds = []
+    new_configuration_list = []
+    
+    for (hwp_theta, imr_theta), data in grouped_data.items():
+        # Compute median separately for diffs and sums
+        median_diff = np.median(data["diffs"])
+        median_sum = np.median(data["sums"])
+        median_diff_std = np.median(data["diff_stds"])
+        median_sum_std = np.median(data["sum_stds"])
+
+        # Store results (maintaining diff-sum order)
+        new_interleaved_values.extend([median_diff, median_sum])
+        new_interleaved_stds.extend([median_diff_std, median_sum_std])
+        new_configuration_list.append({"hwp": {"theta": hwp_theta}, "image_rotator": {"theta": imr_theta}})
+
+    # Convert lists to NumPy arrays
+    new_interleaved_values = np.array(new_interleaved_values)
+    new_interleaved_stds = np.array(new_interleaved_stds)
+
+    return new_interleaved_values, new_interleaved_stds, new_configuration_list
 
 ########################################################################################
 ###### Functions related to defining, updating, and parsing instrument dictionaries ####
@@ -382,3 +435,8 @@ def process_dataset(input_dataset):
 
     #Format this into one array.
     return double_differences, double_sums
+
+#######################################################
+###### Functions related to plotting ##################
+#######################################################
+
