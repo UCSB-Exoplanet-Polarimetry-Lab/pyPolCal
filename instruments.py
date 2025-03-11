@@ -269,7 +269,8 @@ def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_lis
     #TODO: Fill this out more. 
 
 def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, 
-                                   configuration_list, s_in = None):
+    configuration_list, s_in = None, logl_function = None, 
+    process_dataset = None, process_errors = None, process_model = None):
     '''
     Perform a minimization on a dataset, using a System Mueller Matrix model
     Args:
@@ -291,11 +292,11 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
 
     # Running scipy.minimize
     result = minimize(logl, p0_values, 
-                      args=(p0_keywords, system_mm, dataset, errors, configuration_list, s_in), 
-                      method='Nelder-Mead')
+        args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
+            s_in, logl_function, process_dataset, process_errors, process_model), 
+            method='Nelder-Mead')
 
     return result
-
 
 def parse_configuration(configuration):
     '''
@@ -365,7 +366,8 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
     return output_intensities
 
 def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
-         s_in=None, logl_function=None, process_dataset=None, process_model=None):
+         s_in=None, logl_function=None, process_dataset=None, process_errors = None, 
+         process_model=None):
     '''
     Log likelihood function for MCMC
     Args:
@@ -379,17 +381,34 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     Returns:
         log likelihood (float)
     '''
+
+    print("Entered logl")
+
     # Generating a list of model predicted values for each configuration - already parsed
     output_intensities = model(p, system_parameters, system_mm, configuration_list, 
         s_in=s_in, process_model=process_model)
 
-    # Optionally parse the dataset and output intensities (e.g., normalized difference)
-    if process_dataset is not None:
-        dataset = process_dataset(copy.deepcopy(dataset))
-
     # Convert lists to numpy arrays
     dataset = np.array(dataset)
     errors = np.array(errors)
+
+    print("Output Intensities: ", np.shape(output_intensities))
+
+    # Optionally parse the dataset and output intensities (e.g., normalized difference)
+    print("Pre process_dataset dataset shape: ", np.shape(dataset))
+    if process_dataset is not None:
+        processed_dataset = process_dataset(copy.deepcopy(dataset))
+    print("Post process_dataset dataset shape: ", np.shape(processed_dataset))
+
+    # Optionally parse the dataset and output intensities (e.g., normalized difference)
+    print("Pre process_errors errors shape: ", np.shape(dataset))
+    if process_errors is not None:
+        processed_errors = process_errors(copy.deepcopy(errors), 
+            copy.deepcopy(dataset))
+    print("Post process_errors errors shape: ", np.shape(processed_errors))
+
+    dataset = copy.deepcopy(processed_dataset)
+    errors = copy.deepcopy(processed_errors)
 
     # Calculate log likelihood
     if logl_function is not None:
@@ -401,6 +420,8 @@ def build_differences_and_sums(intensities):
     '''
     Assume that the input intensities are organized in pairs. Such that
     '''
+    # Making sure that intensities is a numpy array
+    intensities = np.array(intensities)
 
     differences = intensities[::2]-intensities[1::2]
     sums = intensities[::2]+intensities[1::2]
@@ -411,6 +432,9 @@ def build_double_differences_and_sums(differences, sums):
     '''
     Assume that the input intensities are organized in pairs. Such that
     '''
+    # Making sure that differences and sums are numpy arrays
+    differences = np.array(differences)
+    sums = np.array(sums)
 
     double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
     double_sums = (sums[::2]-sums[1::2])/(sums[::2]+sums[1::2])
@@ -418,23 +442,97 @@ def build_double_differences_and_sums(differences, sums):
     return double_differences, double_sums
 
 def process_model(model_intensities):
+    # Making sure that model_intensities is a numpy array
+    model_intensities = np.array(model_intensities)
+    print("Entered process_model")
 
     differences, sums = build_differences_and_sums(model_intensities)
 
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
+    print("Differences shape: ", np.shape(differences))
+    print("Sums shape: ", np.shape(sums))
+    print("Double Differences shape: ", np.shape(double_differences))
+    print("Double Sums shape: ", np.shape(double_sums))
+
     #Format this into one array. 
-    return double_differences, double_sums
+    interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+    return interleaved_values
 
 def process_dataset(input_dataset): 
+    # Making sure that input_dataset is a numpy array
+    print("Entered process_dataset")
+    print("Pre np.array Input dataset: ", np.shape(input_dataset))
+    input_dataset = np.array(input_dataset)
+    print("Post np.array Input dataset: ", np.shape(input_dataset))
 
     differences = input_dataset[::2]
     sums = input_dataset[1::2]
 
+    print("Differences shape: ", np.shape(differences))
+    print("Sums shape: ", np.shape(sums))
+
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
-    #Format this into one array.
-    return double_differences, double_sums
+    interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+
+    # Format this into one array.
+    return interleaved_values
+
+def process_errors(input_errors, input_dataset): 
+    """
+    Propagates errors through the same transformations as `process_dataset`.
+    
+    Args:
+        input_errors (numpy array): Original errors in intensities.
+        input_dataset (numpy array): Original dataset, needed for normalization steps.
+        
+    Returns:
+        numpy array: Propagated errors for double differences and sums.
+    """
+    print("Entered process_errors")
+
+    # Ensure input is a NumPy array
+    input_errors = np.array(input_errors)
+    input_dataset = np.array(input_dataset)
+
+    print("Pre-processing Errors shape: ", np.shape(input_errors))
+    print("Pre-processing Dataset shape: ", np.shape(input_dataset))
+
+    # Compute errors for differences and sums
+    differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+    sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+
+    print("Differences Errors shape: ", np.shape(differences_errors))
+    print("Sums Errors shape: ", np.shape(sums_errors))
+
+    # Compute double differences and double sums
+    differences = input_dataset[::2] - input_dataset[1::2]
+    sums = input_dataset[::2] + input_dataset[1::2]
+
+    denominator = (sums[::2] + sums[1::2])  # This is used for normalization
+
+    # Compute propagated errors for double differences
+    double_differences_errors = np.sqrt(
+        (sums[::2] + sums[1::2])**2 * (differences_errors[::2]**2 + differences_errors[1::2]**2) + 
+        (differences[::2] - differences[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
+    ) / (denominator**2)
+
+    # Compute propagated errors for double sums
+    double_sums_errors = np.sqrt(
+        (sums[::2] + sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2) + 
+        (sums[::2] - sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
+    ) / (denominator**2)
+
+    print("Double Differences Errors shape: ", np.shape(double_differences_errors))
+    print("Double Sums Errors shape: ", np.shape(double_sums_errors))
+
+    # Interleave errors to maintain order
+    interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
+
+    print("Final interleaved Errors shape: ", np.shape(interleaved_errors))
+
+    return interleaved_errors
 
 #######################################################
 ###### Functions related to plotting ##################
