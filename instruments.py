@@ -6,54 +6,52 @@ from pyMuellerMat import common_mms as cmm
 from pyMuellerMat import MuellerMat
 from scipy.optimize import minimize
 import copy
+from collections import defaultdict
 
 #######################################################
 ###### Functions related to reading in .csv values ####
 #######################################################
+
+# Function to safely parse the stored array-like strings
+def parse_array_string(x):
+    if isinstance(x, str):
+        x = x.strip("[]")  # Remove brackets
+        try:
+            return np.array([float(i) for i in x.split()])  # Convert space-separated numbers to float
+        except ValueError:
+            return np.nan  # Return NaN if conversion fails
+    elif isinstance(x, (list, np.ndarray)):
+        return np.array(x)  # Already in the correct format
+    return np.nan  # If neither, return NaN
 
 # TODO: Test the MBI function
 def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
     # Read CSV file
     df = pd.read_csv(file_path)
     
-    MBI_filters = ["610", "670", "720", "760"]
+    MBI_filters = [610, 670, 720, 760]
 
     # Process only one filter if applicable
     if obs_mode == "MBI":
+        MBI_index = MBI_filters.index(obs_filter)
         df = df[df["OBS-MOD"] == "IPOL_MBI"]
     elif obs_filter is not None:
         df = df[df["FILTER01"] == obs_filter]
+
+    print(type(df["diff"].iloc[0]))
 
     # Convert relevant columns to float (handling possible conversion errors)
     for col in ["RET-POS1", "D_IMRANG"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible
 
-    # Drop rows with NaN values if conversion failed for any critical column
-    df.dropna(subset=["RET-POS1", "D_IMRANG"], inplace=True)
-
-    # Handle MBI mode: extract the correct component from numpy arrays
+    # Handle MBI mode: Convert stored strings to arrays and extract MBI_index-th value
     if obs_mode == "MBI":
-        if obs_filter not in MBI_filters:
-            raise ValueError(f"Invalid obs_filter '{obs_filter}' for MBI mode. Choose from {MBI_filters}.")
-
-        i = MBI_filters.index(obs_filter)  # Get the index corresponding to the filter
-        
-        # Convert diff-related columns into numpy arrays if not already
         for col in ["diff", "sum", "diff_std", "sum_std"]:
-            df[col] = df[col].apply(lambda x: np.array(eval(x)) if isinstance(x, str) else x)
-        
-        # Extract the i-th element from each numpy array
-        df["diff"] = df["diff"].apply(lambda arr: arr[i] if isinstance(arr, np.ndarray) and len(arr) > i else np.nan)
-        df["sum"] = df["sum"].apply(lambda arr: arr[i] if isinstance(arr, np.ndarray) and len(arr) > i else np.nan)
-        df["diff_std"] = df["diff_std"].apply(lambda arr: arr[i] if isinstance(arr, np.ndarray) and len(arr) > i else np.nan)
-        df["sum_std"] = df["sum_std"].apply(lambda arr: arr[i] if isinstance(arr, np.ndarray) and len(arr) > i else np.nan)
-
-    # Convert diff-related columns to numeric after extracting values
-    for col in ["diff", "sum", "diff_std", "sum_std"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # Drop rows with NaN values in critical columns
-    df.dropna(subset=["diff", "sum", "diff_std", "sum_std"], inplace=True)
+            df[col] = df[col].apply(parse_array_string)  # Convert string to array
+            df[col] = df[col].apply(lambda x: x[MBI_index] if isinstance(x, np.ndarray) and len(x) > MBI_index else np.nan)  # Extract MBI_index-th element safely
+    else:
+       for col in ["diff", "sum", "diff_std", "sum_std"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible 
 
     # Interleave values from "diff" and "sum"
     interleaved_values = np.ravel(np.column_stack((df["diff"].values, df["sum"].values)))
@@ -74,6 +72,7 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
             "image_rotator": {"theta": imr_theta}
         }
 
+        # Append two configurations for diff and sum
         configuration_list.append(row_data)
 
     return interleaved_values, interleaved_stds, configuration_list
@@ -217,7 +216,8 @@ def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_lis
     #TODO: Fill this out more. 
 
 def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, 
-                                   configuration_list, s_in = None):
+    configuration_list, s_in = None, logl_function = None, 
+    process_dataset = None, process_errors = None, process_model = None):
     '''
     Perform a minimization on a dataset, using a System Mueller Matrix model
     Args:
@@ -239,11 +239,11 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
 
     # Running scipy.minimize
     result = minimize(logl, p0_values, 
-                      args=(p0_keywords, system_mm, dataset, errors, configuration_list, s_in), 
-                      method='Nelder-Mead')
+        args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
+            s_in, logl_function, process_dataset, process_errors, process_model), 
+            method='Nelder-Mead')
 
     return result
-
 
 def parse_configuration(configuration):
     '''
@@ -313,7 +313,8 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
     return output_intensities
 
 def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
-         s_in=None, logl_function=None, process_dataset=None, process_model=None):
+         s_in=None, logl_function=None, process_dataset=None, process_errors = None, 
+         process_model=None):
     '''
     Log likelihood function for MCMC
     Args:
@@ -327,17 +328,34 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     Returns:
         log likelihood (float)
     '''
+
+    print("Entered logl")
+
     # Generating a list of model predicted values for each configuration - already parsed
     output_intensities = model(p, system_parameters, system_mm, configuration_list, 
         s_in=s_in, process_model=process_model)
 
-    # Optionally parse the dataset and output intensities (e.g., normalized difference)
-    if process_dataset is not None:
-        dataset = process_dataset(copy.deepcopy(dataset))
-
     # Convert lists to numpy arrays
     dataset = np.array(dataset)
     errors = np.array(errors)
+
+    print("Output Intensities: ", np.shape(output_intensities))
+
+    # Optionally parse the dataset and output intensities (e.g., normalized difference)
+    print("Pre process_dataset dataset shape: ", np.shape(dataset))
+    if process_dataset is not None:
+        processed_dataset = process_dataset(copy.deepcopy(dataset))
+    print("Post process_dataset dataset shape: ", np.shape(processed_dataset))
+
+    # Optionally parse the dataset and output intensities (e.g., normalized difference)
+    print("Pre process_errors errors shape: ", np.shape(dataset))
+    if process_errors is not None:
+        processed_errors = process_errors(copy.deepcopy(errors), 
+            copy.deepcopy(dataset))
+    print("Post process_errors errors shape: ", np.shape(processed_errors))
+
+    dataset = copy.deepcopy(processed_dataset)
+    errors = copy.deepcopy(processed_errors)
 
     # Calculate log likelihood
     if logl_function is not None:
@@ -349,6 +367,8 @@ def build_differences_and_sums(intensities):
     '''
     Assume that the input intensities are organized in pairs. Such that
     '''
+    # Making sure that intensities is a numpy array
+    intensities = np.array(intensities)
 
     differences = intensities[::2]-intensities[1::2]
     sums = intensities[::2]+intensities[1::2]
@@ -359,6 +379,9 @@ def build_double_differences_and_sums(differences, sums):
     '''
     Assume that the input intensities are organized in pairs. Such that
     '''
+    # Making sure that differences and sums are numpy arrays
+    differences = np.array(differences)
+    sums = np.array(sums)
 
     double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
     double_sums = (sums[::2]-sums[1::2])/(sums[::2]+sums[1::2])
@@ -366,20 +389,95 @@ def build_double_differences_and_sums(differences, sums):
     return double_differences, double_sums
 
 def process_model(model_intensities):
+    # Making sure that model_intensities is a numpy array
+    model_intensities = np.array(model_intensities)
+    print("Entered process_model")
 
     differences, sums = build_differences_and_sums(model_intensities)
 
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
+    print("Differences shape: ", np.shape(differences))
+    print("Sums shape: ", np.shape(sums))
+    print("Double Differences shape: ", np.shape(double_differences))
+    print("Double Sums shape: ", np.shape(double_sums))
+
     #Format this into one array. 
-    return double_differences, double_sums
+    interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+    return interleaved_values
 
 def process_dataset(input_dataset): 
+    # Making sure that input_dataset is a numpy array
+    print("Entered process_dataset")
+    print("Pre np.array Input dataset: ", np.shape(input_dataset))
+    input_dataset = np.array(input_dataset)
+    print("Post np.array Input dataset: ", np.shape(input_dataset))
 
     differences = input_dataset[::2]
     sums = input_dataset[1::2]
 
+    print("Differences shape: ", np.shape(differences))
+    print("Sums shape: ", np.shape(sums))
+
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
-    #Format this into one array.
-    return double_differences, double_sums
+    interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+
+    # Format this into one array.
+    return interleaved_values
+
+def process_errors(input_errors, input_dataset): 
+    """
+    Propagates errors through the same transformations as `process_dataset`.
+    
+    Args:
+        input_errors (numpy array): Original errors in intensities.
+        input_dataset (numpy array): Original dataset, needed for normalization steps.
+        
+    Returns:
+        numpy array: Propagated errors for double differences and sums.
+    """
+    print("Entered process_errors")
+
+    # Ensure input is a NumPy array
+    input_errors = np.array(input_errors)
+    input_dataset = np.array(input_dataset)
+
+    print("Pre-processing Errors shape: ", np.shape(input_errors))
+    print("Pre-processing Dataset shape: ", np.shape(input_dataset))
+
+    # Compute errors for differences and sums
+    differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+    sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+
+    print("Differences Errors shape: ", np.shape(differences_errors))
+    print("Sums Errors shape: ", np.shape(sums_errors))
+
+    # Compute double differences and double sums
+    differences = input_dataset[::2] - input_dataset[1::2]
+    sums = input_dataset[::2] + input_dataset[1::2]
+
+    denominator = (sums[::2] + sums[1::2])  # This is used for normalization
+
+    # Compute propagated errors for double differences
+    double_differences_errors = np.sqrt(
+        (sums[::2] + sums[1::2])**2 * (differences_errors[::2]**2 + differences_errors[1::2]**2) + 
+        (differences[::2] - differences[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
+    ) / (denominator**2)
+
+    # Compute propagated errors for double sums
+    double_sums_errors = np.sqrt(
+        (sums[::2] + sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2) + 
+        (sums[::2] - sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
+    ) / (denominator**2)
+
+    print("Double Differences Errors shape: ", np.shape(double_differences_errors))
+    print("Double Sums Errors shape: ", np.shape(double_sums_errors))
+
+    # Interleave errors to maintain order
+    interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
+
+    print("Final interleaved Errors shape: ", np.shape(interleaved_errors))
+
+    return interleaved_errors
+
