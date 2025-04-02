@@ -7,6 +7,7 @@ from pyMuellerMat import MuellerMat
 from scipy.optimize import minimize
 import copy
 from collections import defaultdict
+import matplotlib.pyplot as plt
 
 #######################################################
 ###### Functions related to reading in .csv values ####
@@ -38,7 +39,7 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
     elif obs_filter is not None:
         df = df[df["FILTER01"] == obs_filter]
 
-    print(type(df["diff"].iloc[0]))
+    # print(type(df["diff"].iloc[0]))
 
     # Convert relevant columns to float (handling possible conversion errors)
     for col in ["RET-POS1", "D_IMRANG"]:
@@ -480,4 +481,77 @@ def process_errors(input_errors, input_dataset):
     print("Final interleaved Errors shape: ", np.shape(interleaved_errors))
 
     return interleaved_errors
+
+#######################################################
+###### Functions related to plotting ##################
+#######################################################
+
+def plot_data(interleaved_values, interleaved_stds, model, configuration_list):
+    # num_points = len(configuration_list)
+    # assert len(interleaved_values) == 2 * num_points
+    # assert len(interleaved_stds) == 2 * num_points
+    # assert len(model) == 2 * num_points
+
+    # Calculate double differences and sums from interleaved single differences
+    # and sums
+    interleaved_stds = process_errors(interleaved_stds, interleaved_values)
+    interleaved_values = process_dataset(interleaved_values)
+
+    # Extract double differences and double sums
+    dd_values = interleaved_values[::2]
+    ds_values = interleaved_values[1::2]
+    dd_stds = interleaved_stds[::2]
+    ds_stds = interleaved_stds[1::2]
+    dd_model = model[::2]
+    ds_model = model[1::2]
+
+    # Group by image_rotator theta
+    dd_by_theta = {}
+    ds_by_theta = {}
+
+    for i, config in enumerate(configuration_list[::2]):
+        hwp_theta = config["hwp"]["theta"]
+        imr_theta = round(config["image_rotator"]["theta"], 1)
+
+        # Double differences
+        if imr_theta not in dd_by_theta:
+            dd_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": [], "model": []}
+        dd_by_theta[imr_theta]["hwp_theta"].append(hwp_theta)
+        dd_by_theta[imr_theta]["values"].append(dd_values[i])
+        dd_by_theta[imr_theta]["stds"].append(dd_stds[i])
+        dd_by_theta[imr_theta]["model"].append(dd_model[i])
+
+        # Double sums
+        if imr_theta not in ds_by_theta:
+            ds_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": [], "model": []}
+        ds_by_theta[imr_theta]["hwp_theta"].append(hwp_theta)
+        ds_by_theta[imr_theta]["values"].append(ds_values[i])
+        ds_by_theta[imr_theta]["stds"].append(ds_stds[i])
+        ds_by_theta[imr_theta]["model"].append(ds_model[i])
+
+    # Create the plots
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True)
+
+    # Double Difference plot
+    ax = axes[0]
+    for theta, d in dd_by_theta.items():
+        ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
+        ax.plot(d["hwp_theta"], d["model"], '-')
+    ax.set_title("Double Difference")
+    ax.set_xlabel("HWP θ (deg)")
+    ax.set_ylabel("Double Difference")
+    ax.legend(title="IMR θ")
+
+    # Double Sum plot
+    ax = axes[1]
+    for theta, d in ds_by_theta.items():
+        ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
+        ax.plot(d["hwp_theta"], d["model"], '-')
+    ax.set_title("Double Sum")
+    ax.set_xlabel("HWP θ (deg)")
+    ax.set_ylabel("Double Sum")
+    ax.legend(title="IMR θ")
+
+    plt.tight_layout()
+    plt.show()
 
