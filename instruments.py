@@ -486,6 +486,8 @@ def process_errors(input_errors, input_dataset):
 ###### Functions related to plotting ##################
 #######################################################
 
+# TODO: Should this be with the single difference values and stds or the processed
+# double difference and sum values?
 def plot_data(interleaved_values, interleaved_stds, model, configuration_list):
     # num_points = len(configuration_list)
     # assert len(interleaved_values) == 2 * num_points
