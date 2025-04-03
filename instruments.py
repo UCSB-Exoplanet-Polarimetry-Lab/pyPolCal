@@ -30,7 +30,7 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
     # Read CSV file
     df = pd.read_csv(file_path)
     
-    MBI_filters = [610, 670, 720, 760]
+    MBI_filters = [760, 620, 670, 610]
 
     # Process only one filter if applicable
     if obs_mode == "MBI":
