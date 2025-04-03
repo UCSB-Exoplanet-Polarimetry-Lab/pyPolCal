@@ -67,10 +67,18 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
         hwp_theta = row["RET-POS1"]
         imr_theta = row["D_IMRANG"]
 
+        flc_theta = row["U_FLC"]
+
+        if flc_theta == "A":
+             flc_theta = 0
+        elif flc_theta == "B":
+             flc_theta = 45
+
         # Building dictionary
         row_data = {
             "hwp": {"theta": hwp_theta},
-            "image_rotator": {"theta": imr_theta}
+            "image_rotator": {"theta": imr_theta},
+            "flc": {"theta": flc_theta}
         }
 
         # Append two configurations for diff and sum
@@ -330,7 +338,7 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
         log likelihood (float)
     '''
 
-    print("Entered logl")
+    # print("Entered logl")
 
     # Generating a list of model predicted values for each configuration - already parsed
     output_intensities = model(p, system_parameters, system_mm, configuration_list, 
@@ -340,20 +348,20 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     dataset = np.array(dataset)
     errors = np.array(errors)
 
-    print("Output Intensities: ", np.shape(output_intensities))
+    # print("Output Intensities: ", np.shape(output_intensities))
 
     # Optionally parse the dataset and output intensities (e.g., normalized difference)
-    print("Pre process_dataset dataset shape: ", np.shape(dataset))
+    # print("Pre process_dataset dataset shape: ", np.shape(dataset))
     if process_dataset is not None:
         processed_dataset = process_dataset(copy.deepcopy(dataset))
-    print("Post process_dataset dataset shape: ", np.shape(processed_dataset))
+    # print("Post process_dataset dataset shape: ", np.shape(processed_dataset))
 
     # Optionally parse the dataset and output intensities (e.g., normalized difference)
-    print("Pre process_errors errors shape: ", np.shape(dataset))
+    # print("Pre process_errors errors shape: ", np.shape(dataset))
     if process_errors is not None:
         processed_errors = process_errors(copy.deepcopy(errors), 
             copy.deepcopy(dataset))
-    print("Post process_errors errors shape: ", np.shape(processed_errors))
+    # print("Post process_errors errors shape: ", np.shape(processed_errors))
 
     dataset = copy.deepcopy(processed_dataset)
     errors = copy.deepcopy(processed_errors)
@@ -385,40 +393,45 @@ def build_double_differences_and_sums(differences, sums):
     sums = np.array(sums)
 
     double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
-    double_sums = (sums[::2]-sums[1::2])/(sums[::2]+sums[1::2])
+    double_sums = (differences[::2]+differences[1::2])/(sums[::2]+sums[1::2])
 
     return double_differences, double_sums
 
 def process_model(model_intensities):
     # Making sure that model_intensities is a numpy array
     model_intensities = np.array(model_intensities)
-    print("Entered process_model")
+    # print("Entered process_model")
 
     differences, sums = build_differences_and_sums(model_intensities)
 
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
-    print("Differences shape: ", np.shape(differences))
-    print("Sums shape: ", np.shape(sums))
-    print("Double Differences shape: ", np.shape(double_differences))
-    print("Double Sums shape: ", np.shape(double_sums))
+    # print("Differences shape: ", np.shape(differences))
+    # print("Sums shape: ", np.shape(sums))
+    # print("Double Differences shape: ", np.shape(double_differences))
+    # print("Double Sums shape: ", np.shape(double_sums))
 
     #Format this into one array. 
     interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+    
+    # Take the negative of this as was done before 
+    # TODO: Double check that I'm subtracting the same FLC state order as Miles
+    interleaved_values = interleaved_values
+
     return interleaved_values
 
 def process_dataset(input_dataset): 
     # Making sure that input_dataset is a numpy array
-    print("Entered process_dataset")
-    print("Pre np.array Input dataset: ", np.shape(input_dataset))
+    # print("Entered process_dataset")
+    # print("Pre np.array Input dataset: ", np.shape(input_dataset))
     input_dataset = np.array(input_dataset)
-    print("Post np.array Input dataset: ", np.shape(input_dataset))
+    # print("Post np.array Input dataset: ", np.shape(input_dataset))
 
     differences = input_dataset[::2]
     sums = input_dataset[1::2]
 
-    print("Differences shape: ", np.shape(differences))
-    print("Sums shape: ", np.shape(sums))
+    print("Differences: ", differences)
+    # print("Sums shape: ", np.shape(sums))
 
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
@@ -438,21 +451,21 @@ def process_errors(input_errors, input_dataset):
     Returns:
         numpy array: Propagated errors for double differences and sums.
     """
-    print("Entered process_errors")
+    # print("Entered process_errors")
 
     # Ensure input is a NumPy array
     input_errors = np.array(input_errors)
     input_dataset = np.array(input_dataset)
 
-    print("Pre-processing Errors shape: ", np.shape(input_errors))
-    print("Pre-processing Dataset shape: ", np.shape(input_dataset))
+    # print("Pre-processing Errors shape: ", np.shape(input_errors))
+    # print("Pre-processing Dataset shape: ", np.shape(input_dataset))
 
     # Compute errors for differences and sums
     differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
     sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
 
-    print("Differences Errors shape: ", np.shape(differences_errors))
-    print("Sums Errors shape: ", np.shape(sums_errors))
+    # print("Differences Errors shape: ", np.shape(differences_errors))
+    # print("Sums Errors shape: ", np.shape(sums_errors))
 
     # Compute double differences and double sums
     differences = input_dataset[::2] - input_dataset[1::2]
@@ -472,13 +485,13 @@ def process_errors(input_errors, input_dataset):
         (sums[::2] - sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
     ) / (denominator**2)
 
-    print("Double Differences Errors shape: ", np.shape(double_differences_errors))
-    print("Double Sums Errors shape: ", np.shape(double_sums_errors))
+    # print("Double Differences Errors shape: ", np.shape(double_differences_errors))
+    # print("Double Sums Errors shape: ", np.shape(double_sums_errors))
 
     # Interleave errors to maintain order
     interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
 
-    print("Final interleaved Errors shape: ", np.shape(interleaved_errors))
+    # print("Final interleaved Errors shape: ", np.shape(interleaved_errors))
 
     return interleaved_errors
 
@@ -486,16 +499,11 @@ def process_errors(input_errors, input_dataset):
 ###### Functions related to plotting ##################
 #######################################################
 
-# TODO: Should this be with the single difference values and stds or the processed
-# double difference and sum values?
-def plot_data(interleaved_values, interleaved_stds, model, configuration_list):
-    # num_points = len(configuration_list)
-    # assert len(interleaved_values) == 2 * num_points
-    # assert len(interleaved_stds) == 2 * num_points
-    # assert len(model) == 2 * num_points
+import matplotlib.pyplot as plt
+import numpy as np
 
+def plot_data(interleaved_values, interleaved_stds, model, configuration_list, imr_theta_filter=None):
     # Calculate double differences and sums from interleaved single differences
-    # and sums
     interleaved_stds = process_errors(interleaved_stds, interleaved_values)
     interleaved_values = process_dataset(interleaved_values)
 
@@ -507,6 +515,8 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list):
     dd_model = model[::2]
     ds_model = model[1::2]
 
+    # print("Double Difference values: " + str(dd_values))
+
     # Group by image_rotator theta
     dd_by_theta = {}
     ds_by_theta = {}
@@ -514,6 +524,9 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list):
     for i, config in enumerate(configuration_list[::2]):
         hwp_theta = config["hwp"]["theta"]
         imr_theta = round(config["image_rotator"]["theta"], 1)
+
+        if imr_theta_filter is not None and imr_theta != round(imr_theta_filter, 1):
+            continue  # Skip angles that don't match the filter
 
         # Double differences
         if imr_theta not in dd_by_theta:
@@ -537,8 +550,11 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list):
     # Double Difference plot
     ax = axes[0]
     for theta, d in dd_by_theta.items():
-        ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
-        ax.plot(d["hwp_theta"], d["model"], '-')
+        print("Double Differences: " + str(d["values"]))
+        print("Double Differences Length: " + str(len(d["values"])))
+        err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
+        color = err[0].get_color()
+        ax.plot(d["hwp_theta"], d["model"], '-', color=color)
     ax.set_title("Double Difference")
     ax.set_xlabel("HWP θ (deg)")
     ax.set_ylabel("Double Difference")
@@ -547,8 +563,9 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list):
     # Double Sum plot
     ax = axes[1]
     for theta, d in ds_by_theta.items():
-        ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
-        ax.plot(d["hwp_theta"], d["model"], '-')
+        err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
+        color = err[0].get_color()
+        ax.plot(d["hwp_theta"], d["model"], '-', color=color)
     ax.set_title("Double Sum")
     ax.set_xlabel("HWP θ (deg)")
     ax.set_ylabel("Double Sum")
@@ -556,4 +573,3 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list):
 
     plt.tight_layout()
     plt.show()
-
