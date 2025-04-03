@@ -416,7 +416,7 @@ def process_model(model_intensities):
     
     # Take the negative of this as was done before 
     # TODO: Double check that I'm subtracting the same FLC state order as Miles
-    interleaved_values = interleaved_values
+    interleaved_values = -interleaved_values
 
     return interleaved_values
 
@@ -430,7 +430,7 @@ def process_dataset(input_dataset):
     differences = input_dataset[::2]
     sums = input_dataset[1::2]
 
-    print("Differences: ", differences)
+    # print("Differences: ", differences)
     # print("Sums shape: ", np.shape(sums))
 
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
