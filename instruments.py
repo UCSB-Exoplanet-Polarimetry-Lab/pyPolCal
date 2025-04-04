@@ -226,7 +226,8 @@ def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_lis
 
 def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, 
     configuration_list, s_in = None, logl_function = None, 
-    process_dataset = None, process_errors = None, process_model = None):
+    process_dataset = None, process_errors = None, process_model = None,
+    bounds = None):
     '''
     Perform a minimization on a dataset, using a System Mueller Matrix model
     Args:
@@ -250,7 +251,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
     result = minimize(logl, p0_values, 
         args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
             s_in, logl_function, process_dataset, process_errors, process_model), 
-            method='Nelder-Mead')
+            method='Nelder-Mead', bounds = bounds)
 
     return result
 
@@ -415,7 +416,7 @@ def process_model(model_intensities):
     interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
     
     # Take the negative of this as was done before 
-    # TODO: Double check that I'm subtracting the same FLC state order as Miles
+    # NOTE: Subtracting same FLC state orders (A - B) as Miles
     interleaved_values = -interleaved_values
 
     return interleaved_values
@@ -550,8 +551,8 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list, i
     # Double Difference plot
     ax = axes[0]
     for theta, d in dd_by_theta.items():
-        print("Double Differences: " + str(d["values"]))
-        print("Double Differences Length: " + str(len(d["values"])))
+        # print("Double Differences: " + str(d["values"]))
+        # print("Double Differences Length: " + str(len(d["values"])))
         err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
         color = err[0].get_color()
         ax.plot(d["hwp_theta"], d["model"], '-', color=color)
