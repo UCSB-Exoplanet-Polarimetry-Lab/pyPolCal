@@ -244,16 +244,22 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
 
     p0_values, p0_keywords = parse_configuration(p0)
 
-    print("p0_values: ", p0_values)
-    print("p0_keywords: ", p0_keywords)
+    # print("p0_values: ", p0_values)
+    # print("p0_keywords: ", p0_keywords)
 
     # Running scipy.minimize
     result = minimize(logl, p0_values, 
         args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
             s_in, logl_function, process_dataset, process_errors, process_model), 
             method='Nelder-Mead', bounds = bounds)
-
-    return result
+    
+    # Saving the final result's logl value
+    logl_value = logl(result.x, p0_keywords, system_mm, dataset, errors, 
+        configuration_list, s_in=s_in, logl_function=logl_function, 
+        process_dataset=process_dataset, process_errors = process_errors, 
+        process_model = process_model)
+    
+    return result, logl_value
 
 def parse_configuration(configuration):
     '''
@@ -323,21 +329,47 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
     return output_intensities
 
 def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
-         s_in=None, logl_function=None, process_dataset=None, process_errors = None, 
+         s_in=None, logl_function=None, process_dataset=None, process_errors=None, 
          process_model=None):
-    '''
-    Log likelihood function for MCMC
-    Args:
-        p: List of parameters
-        system_parameters: List defining parameter mappings
-        system_mm: System Mueller Matrix object
-        dataset: List of measurements
-        errors: Measurement errors
-        configuration_list: List of dictionaries with configurations
-        s_in: (Optional) Input Stokes vector (default: [1, 0, 0, 0])
-    Returns:
-        log likelihood (float)
-    '''
+    """
+    Compute the log-likelihood of a model given a dataset and system configuration.
+
+    This function evaluates how well a set of system Mueller matrix parameters
+    (given by `p`) reproduce the observed dataset, using a chi-squared-based 
+    likelihood metric or a user-defined log-likelihood function.
+
+    Parameters
+    ----------
+    p : list of float
+        List of current parameter values to optimize (flattened).
+    system_parameters : list of [str, str]
+        List of [component_name, parameter_name] pairs corresponding to `p`.
+    system_mm : pyMuellerMat.MuellerMat.SystemMuellerMatrix
+        Mueller matrix model of the optical system.
+    dataset : np.ndarray
+        Interleaved observed data values (e.g., [dd1, ds1, dd2, ds2, ...]).
+    errors : np.ndarray
+        Measurement errors associated with `dataset`, in the same order.
+    configuration_list : list of dict
+        Each dict describes the instrument configuration for a measurement, including 
+        settings like HWP angle, FLC state, etc.
+    s_in : np.ndarray, optional
+        Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
+    logl_function : callable, optional
+        A custom function with signature `logl_function(p, model, data, errors)` 
+        that returns the log-likelihood. If None, default chi-squared is used.
+    process_dataset : callable, optional
+        Function to transform the dataset (e.g., normalize or reduce dimensionality).
+    process_errors : callable, optional
+        Function to propagate errors through the same transformation as `process_dataset`.
+    process_model : callable, optional
+        Function to apply the same transformation to the model predictions as to the data.
+
+    Returns
+    -------
+    float
+        The computed log-likelihood value (higher is better).
+    """
 
     # print("Entered logl")
 
@@ -500,10 +532,43 @@ def process_errors(input_errors, input_dataset):
 ###### Functions related to plotting ##################
 #######################################################
 
-import matplotlib.pyplot as plt
-import numpy as np
+def plot_data_and_model(interleaved_values, interleaved_stds, model, 
+    configuration_list, imr_theta_filter=None, wavelength=None):
+    """
+    Plots double difference and double sum measurements alongside model predictions,
+    grouped by image rotator angle (D_IMRANG). Optionally filters by a specific 
+    image rotator angle and displays a wavelength in the plot title.
 
-def plot_data(interleaved_values, interleaved_stds, model, configuration_list, imr_theta_filter=None):
+    Parameters
+    ----------
+    interleaved_values : np.ndarray
+        Interleaved array of observed double difference and double sum values.
+        Expected format: [dd1, ds1, dd2, ds2, ...].
+
+    interleaved_stds : np.ndarray
+        Interleaved array of standard deviations corresponding to the observed values.
+
+    model : np.ndarray
+        Interleaved array of model-predicted double difference and double sum values.
+
+    configuration_list : list of dict
+        List of system configurations (one for each measurement), where each dictionary 
+        contains component settings like HWP and image rotator angles.
+
+    imr_theta_filter : float, optional
+        If provided, only measurements with this image rotator angle (rounded to 0.1°) 
+        will be plotted.
+
+    wavelength : str or int, optional
+        Wavelength (e.g., 670 or "670") to display as a centered title with "nm" units 
+        (e.g., "670nm").
+
+    Returns
+    -------
+    None
+        Displays two subplots: one for double differences and one for double sums,
+        including error bars and model curves.
+    """
     # Calculate double differences and sums from interleaved single differences
     interleaved_stds = process_errors(interleaved_stds, interleaved_values)
     interleaved_values = process_dataset(interleaved_values)
@@ -516,8 +581,6 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list, i
     dd_model = model[::2]
     ds_model = model[1::2]
 
-    # print("Double Difference values: " + str(dd_values))
-
     # Group by image_rotator theta
     dd_by_theta = {}
     ds_by_theta = {}
@@ -527,9 +590,8 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list, i
         imr_theta = round(config["image_rotator"]["theta"], 1)
 
         if imr_theta_filter is not None and imr_theta != round(imr_theta_filter, 1):
-            continue  # Skip angles that don't match the filter
+            continue
 
-        # Double differences
         if imr_theta not in dd_by_theta:
             dd_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": [], "model": []}
         dd_by_theta[imr_theta]["hwp_theta"].append(hwp_theta)
@@ -537,7 +599,6 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list, i
         dd_by_theta[imr_theta]["stds"].append(dd_stds[i])
         dd_by_theta[imr_theta]["model"].append(dd_model[i])
 
-        # Double sums
         if imr_theta not in ds_by_theta:
             ds_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": [], "model": []}
         ds_by_theta[imr_theta]["hwp_theta"].append(hwp_theta)
@@ -551,12 +612,9 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list, i
     # Double Difference plot
     ax = axes[0]
     for theta, d in dd_by_theta.items():
-        # print("Double Differences: " + str(d["values"]))
-        # print("Double Differences Length: " + str(len(d["values"])))
         err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
         color = err[0].get_color()
         ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-    ax.set_title("Double Difference")
     ax.set_xlabel("HWP θ (deg)")
     ax.set_ylabel("Double Difference")
     ax.legend(title="IMR θ")
@@ -567,10 +625,13 @@ def plot_data(interleaved_values, interleaved_stds, model, configuration_list, i
         err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
         color = err[0].get_color()
         ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-    ax.set_title("Double Sum")
     ax.set_xlabel("HWP θ (deg)")
     ax.set_ylabel("Double Sum")
     ax.legend(title="IMR θ")
 
-    plt.tight_layout()
+    # Set a suptitle if wavelength is provided
+    if wavelength is not None:
+        fig.suptitle(f"{wavelength}nm", fontsize=14)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for suptitle
     plt.show()
