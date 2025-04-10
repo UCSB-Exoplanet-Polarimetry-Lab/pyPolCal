@@ -403,7 +403,7 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     if logl_function is not None:
         return logl_function(p, output_intensities, dataset, errors)
     else: 
-        return -0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
+        return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
 
 def build_differences_and_sums(intensities):
     '''
