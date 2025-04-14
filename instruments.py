@@ -282,6 +282,35 @@ def parse_configuration(configuration):
 
     return values, keywords
 
+def update_p0(p0, result):
+    """
+    Updates the existing p0 dictionary in place using result_values from scipy.optimize,
+    based on the parameter order returned by parse_configuration.
+
+    Parameters:
+    -----------
+    p0 : dict
+        The original nested parameter dictionary (will be updated in-place).
+    result_values : list or np.ndarray
+        Optimized parameter values from scipy.optimize (e.g., result.x).
+
+    Returns:
+    --------
+    None
+        The function modifies `p0` directly.
+    """
+    # Use the existing parser to get the keyword pairs in order
+    _, p0_keywords = parse_configuration(p0)
+
+    # Sanity check
+    if len(p0_keywords) != len(result):
+        raise ValueError("Mismatch: result_values length does not match number of parameters in p0.")
+
+    # Perform in-place update
+    for (component, parameter), value in zip(p0_keywords, result):
+        p0[component][parameter] = value
+
+
 ########################################################################################
 ###### Functions related to fitting ####################################################
 ########################################################################################
