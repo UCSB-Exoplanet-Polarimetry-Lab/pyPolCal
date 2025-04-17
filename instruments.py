@@ -8,6 +8,12 @@ from scipy.optimize import minimize
 import copy
 from collections import defaultdict
 import matplotlib.pyplot as plt
+import emcee
+import mcmc_helper_funcs as mcmc
+from multiprocessing import Pool
+import copy
+import os
+from functools import partial
 
 #######################################################
 ###### Functions related to reading in .csv values ####
@@ -191,38 +197,80 @@ def generate_measurement(system_mm, s_in = np.array([1, 0, 0, 0])):
     output_stokes = system_mm.evaluate() @ s_in
     return output_stokes
 
-def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_list):
-    '''
-    Perform MCMC on a dataset, using a System Mueller Matrix model
+#######################################################
+###### Functions for MCMC #############################
+#######################################################
 
-    Example p0: 
+# Main MCMC function
+def run_mcmc(
+    p0_dict, system_mm, dataset, errors, configuration_list,
+    priors, bounds, logl_function, output_h5_file,
+    nwalkers=64, nsteps=10000, pool_processes=None, 
+    s_in=np.array([1, 0, 0, 0]), process_dataset=None, 
+    process_errors=None, process_model=None, resume=True
+):
+    """
+    Run MCMC using emcee with support for dictionary-based parameter inputs.
+    """
 
-    p0 = {'Polarizer': {'Theta': 0, 'Phi': 0},
-          'Waveplate': {'Theta': 0, 'Phi': 0},
-          'Retarder': {'Theta': 0, 'Phi': 0},
-          'Sample': {'Theta': 0, 'Phi': 0},
-          'Analyzer': {'Theta': 0, 'Phi': 0}}
+    p0_values, p_keys = parse_configuration(p0_dict)
+    ndim = len(p0_values)
 
-    Args: 
-    p0: dictionary of dictionaries of initial parameters
-    systemMM: pyMuellerMat System Mueller Matrix object
-    dataset: list of measurements
-    configuration_list: list of system dictionaries, one for each measurement in dataset
-    '''
+    log_prior = mcmc.log_prior
 
-    #####################################################
-    ###### First, define the data model based on p0 #####
-    #####################################################
+    resume = os.path.exists(output_h5_file)
+    backend = emcee.backends.HDFBackend(output_h5_file)
 
-    #Parse p0 into a list of values and a list of lists of keywords
-    p0_values = []
-    p0_keywords = []
-    for component, parameters in p0.items():
-        for parameter, value in parameters.items():
-            p0_values.append(value)
-            p0_keywords.append([component, parameter])
+    if not resume or backend.iteration == 0:
+        backend.reset(nwalkers, ndim)
 
-    #TODO: Fill this out more. 
+    pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
+
+    args = (
+        system_mm, dataset, errors, configuration_list, p_keys, s_in,
+        process_model, process_dataset, process_errors,
+        priors, bounds, logl_function
+    )
+
+    with Pool(processes=pool_processes) as pool:
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob, args=args, pool=pool, backend=backend)
+        sampler.run_mcmc(pos, nsteps, progress=True)
+
+    return sampler, p_keys
+
+
+# def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_list):
+#     '''
+#     Perform MCMC on a dataset, using a System Mueller Matrix model
+
+#     Example p0: 
+
+#     p0 = {'Polarizer': {'Theta': 0, 'Phi': 0},
+#           'Waveplate': {'Theta': 0, 'Phi': 0},
+#           'Retarder': {'Theta': 0, 'Phi': 0},
+#           'Sample': {'Theta': 0, 'Phi': 0},
+#           'Analyzer': {'Theta': 0, 'Phi': 0}}
+
+#     Args: 
+#     p0: dictionary of dictionaries of initial parameters
+#     systemMM: pyMuellerMat System Mueller Matrix object
+#     dataset: list of measurements
+#     configuration_list: list of system dictionaries, one for each measurement in dataset
+#     '''
+
+#     #####################################################
+#     ###### First, define the data model based on p0 #####
+#     #####################################################
+
+#     #Parse p0 into a list of values and a list of lists of keywords
+#     p0_values = []
+#     p0_keywords = []
+#     for component, parameters in p0.items():
+#         for parameter, value in parameters.items():
+#             p0_values.append(value)
+#             p0_keywords.append([component, parameter])
+
+#     #TODO: Fill this out more. 
 
 def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, 
     configuration_list, s_in = None, logl_function = None, 
