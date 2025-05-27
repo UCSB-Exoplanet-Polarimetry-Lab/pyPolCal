@@ -24,8 +24,6 @@ def gaussian_prior(x, mu, sigma):
     return -0.5 * ((x - mu) / sigma) ** 2
 
 def log_prior(theta, keys, prior_dict, bounds_dict):
-    from mcmc_helper_funcs import unflatten_p  # re-import if needed
-
     p_dict = unflatten_p(theta, keys)
     logp = 0
     for (comp, param), val in zip(keys, theta):

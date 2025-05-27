@@ -610,7 +610,7 @@ def process_errors(input_errors, input_dataset):
 #######################################################
 
 def plot_data_and_model(interleaved_values, interleaved_stds, model, 
-    configuration_list, imr_theta_filter=None, wavelength=None):
+    configuration_list, imr_theta_filter=None, wavelength=None, save_path = None):
     """
     Plots double difference and double sum measurements alongside model predictions,
     grouped by image rotator angle (D_IMRANG). Optionally filters by a specific 
@@ -711,4 +711,9 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         fig.suptitle(f"{wavelength}nm", fontsize=14)
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for suptitle
+
+    if save_path != None:
+        plt.savefig(save_path)
+
     plt.show()
+
