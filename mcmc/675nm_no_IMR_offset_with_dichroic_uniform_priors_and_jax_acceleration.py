@@ -8,8 +8,9 @@ mcmc_helper_funcs_path = ""
 
 import numpy as np
 import json
-import instruments as inst
-import mcmc_helper_funcs as mcmc
+import instruments_jax as inst
+# from instruments_jax import logl_with_logf, process_dataset, process_errors, process_model
+import mcmc_helper_funcs_jax as mcmc
 from functools import partial
 
 # Example file path and configuration
@@ -75,9 +76,6 @@ print(f"Auto-detected: {pool_processes} processes, {nwalkers} walkers for {ndim}
 
 # Define bounds and priors for each parameter (customize as needed)
 bounds = {
-    "wollaston": {
-        "transmission_ratio": (0, 2)
-    },
     "dichroic": {
         "phi": (-2 * np.pi, 2 * np.pi),
         "epsilon": (0, 1),
@@ -104,36 +102,49 @@ bounds = {
     }
 }
 
-priors = {}
-
-# Initially setting Gaussian priors for all values
-# TODO: Make sure the prior is NOT centered around the starting guess - uniform is better
-for component, params in p0.items():
-    priors[component] = {}
-    for param, val in params.items():
-        priors[component][param] = partial(mcmc.gaussian_prior, mu = val, sigma = 0.1 * abs(val))  # Gaussian centered at val
-
-# Custom changing the offset angle priors to be near zero, with 1 degree std
-offset_prior = partial(mcmc.gaussian_prior, mu=0, sigma=1)
-priors["flc"]["delta_theta"] = offset_prior
-priors["hwp"]["delta_theta"] = offset_prior
-priors["flc"]["theta"] = offset_prior
+# Setting all uniform priors for now
+prior_dict = {
+    "dichroic": {
+        "phi": {"type": "uniform", "kwargs": {"low": -2 * np.pi, "high": 2 * np.pi}},
+        "epsilon": {"type": "uniform", "kwargs": {"low": 0, "high": 1}},
+        "theta": {"type": "uniform", "kwargs": {"low": -90, "high": 90}},
+    },
+    "flc": {
+        "phi": {"type": "uniform", "kwargs": {"low": -2 * np.pi, "high": 2 * np.pi}},
+        "delta_theta": {"type": "gaussian", "kwargs": {"mu": 0.0, "sigma": 1.0}},
+    },
+    "optics": {
+        "phi": {"type": "uniform", "kwargs": {"low": -2 * np.pi, "high": 2 * np.pi}},
+        "epsilon": {"type": "uniform", "kwargs": {"low": 0, "high": 1}},
+        "theta": {"type": "uniform", "kwargs": {"low": -90, "high": 90}},
+    },
+    "image_rotator": {
+        "phi": {"type": "uniform", "kwargs": {"low": -2 * np.pi, "high": 2 * np.pi}},
+    },
+    "hwp": {
+        "phi": {"type": "uniform", "kwargs": {"low": -2 * np.pi, "high": 2 * np.pi}},
+        "delta_theta": {"type": "gaussian", "kwargs": {"mu": 0.0, "sigma": 1.0}},
+    },
+    "lp": {
+        "theta": {"type": "gaussian", "kwargs": {"mu": 0.0, "sigma": 1.0}},
+    },
+}
 
 # Saving parameters
-output_h5_file = "675nm_no_IMR_offset_with_dichroic.h5"
-nsteps = 10000
+output_h5_file = "675nm_no_IMR_offset_with_dichroic_uniform_priors_logf_and_jax.h5"
+nsteps = 40000
 s_in = np.array([1, 0, 0, 0])
 
-# Run MCMC with emcee
+# Run MCMC with emcee and include log_f
 sampler, fitted_keys = inst.run_mcmc(
     p0_dict=p0,
     system_mm=system_mm,
     dataset=interleaved_values,
     errors=interleaved_stds,
     configuration_list=configuration_list,
-    priors=priors,
+    priors=prior_dict,
     bounds=bounds,
-    logl_function=inst.logl,
+    logl_function=inst.logl_with_logf,
     output_h5_file=output_h5_file,
     nwalkers=nwalkers,
     nsteps=nsteps,
@@ -141,7 +152,9 @@ sampler, fitted_keys = inst.run_mcmc(
     s_in=s_in,
     process_dataset=inst.process_dataset,
     process_errors=inst.process_errors,
-    process_model=inst.process_model
+    process_model=inst.process_model,
+    include_log_f=True,
+    log_f=-3.0
 )
 
 # Access chain or log prob like:

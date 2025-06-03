@@ -9,11 +9,14 @@ import copy
 from collections import defaultdict
 import matplotlib.pyplot as plt
 import emcee
-import mcmc_helper_funcs as mcmc
+import mcmc_helper_funcs_jax as mcmc
 from multiprocessing import Pool
 import copy
 import os
 from functools import partial
+import jax
+import jax.numpy as jnp
+from jax import jit
 
 #######################################################
 ###### Functions related to reading in .csv values ####
@@ -207,16 +210,71 @@ def run_mcmc(
     priors, bounds, logl_function, output_h5_file,
     nwalkers=64, nsteps=10000, pool_processes=None, 
     s_in=np.array([1, 0, 0, 0]), process_dataset=None, 
-    process_errors=None, process_model=None, resume=True
+    process_errors=None, process_model=None, resume=True,
+    include_log_f=False, log_f=-3.0
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
+
+    This function supports standard system Mueller matrix fitting as well as
+    extended likelihoods that include a noise-scaling term (`log_f`) in the model.
+
+    Parameters
+    ----------
+    p0_dict : dict
+        Nested dictionary of initial parameter guesses structured by component.
+    system_mm : SystemMuellerMatrix
+        The optical system's Mueller matrix object.
+    dataset : np.ndarray
+        Observed data values (interleaved double differences and sums).
+    errors : np.ndarray
+        Standard deviations associated with each element of `dataset`.
+    configuration_list : list of dict
+        List of per-measurement configurations (e.g., HWP/FLC angles).
+    priors : dict
+        Dictionary mapping parameter names to prior functions.
+    bounds : dict
+        Dictionary of (low, high) tuples for each parameter.
+    logl_function : callable
+        Log-likelihood function to evaluate model fit.
+    output_h5_file : str
+        Path to the output HDF5 file used to store MCMC results.
+    nwalkers : int, optional
+        Number of walkers (default is max of 2x parameters or process-scaled).
+    nsteps : int, optional
+        Number of steps for each walker.
+    pool_processes : int, optional
+        Number of parallel processes to use.
+    s_in : np.ndarray, optional
+        Input Stokes vector for the system (default: [1, 0, 0, 0]).
+    process_dataset : callable, optional
+        Function to process the dataset before likelihood comparison.
+    process_errors : callable, optional
+        Function to process errors in the same way as the dataset.
+    process_model : callable, optional
+        Function to process model outputs before likelihood comparison.
+    resume : bool, optional
+        If True and the HDF5 file exists, resume from saved state.
+    include_log_f : bool, optional
+        If True, appends a `log_f` noise inflation parameter to the parameter list.
+    log_f0 : float, optional
+        Initial value for `log_f` if `include_log_f` is True.
+
+    Returns
+    -------
+    sampler : emcee.EnsembleSampler
+        The sampler object containing the MCMC chain.
+    p_keys : list of tuple
+        List of (component, parameter) key pairs used for tracking parameters.
     """
 
-    p0_values, p_keys = parse_configuration(p0_dict)
-    ndim = len(p0_values)
 
-    log_prior = mcmc.log_prior
+    p0_values, p_keys = parse_configuration(p0_dict)
+
+    if include_log_f:
+        p0_values = p0_values + [log_f]             
+
+    ndim = len(p0_values)
 
     resume = os.path.exists(output_h5_file)
     backend = emcee.backends.HDFBackend(output_h5_file)
@@ -229,7 +287,7 @@ def run_mcmc(
     args = (
         system_mm, dataset, errors, configuration_list, p_keys, s_in,
         process_model, process_dataset, process_errors,
-        priors, bounds, logl_function
+        priors, bounds, logl_with_logf
     )
 
     with Pool(processes=pool_processes) as pool:
@@ -406,6 +464,54 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
 
     return output_intensities
 
+def logl_with_logf(theta, system_mm, dataset, errors, configuration_list, 
+                   system_parameters, s_in, process_model, process_dataset, 
+                   process_errors):
+    """
+    Log-likelihood function that includes a noise inflation parameter log_f.
+
+    Parameters
+    ----------
+    theta : jnp.ndarray
+        Parameter vector, with the last entry being log_f.
+    system_mm : SystemMuellerMatrix
+        Optical system Mueller matrix.
+    dataset : np.ndarray
+        Observed data.
+    errors : np.ndarray
+        Measurement uncertainties.
+    configuration_list : list
+        List of measurement configurations.
+    system_parameters : list
+        List of (component, parameter) keys for fitting.
+    s_in : np.ndarray
+        Input Stokes vector.
+    process_model, process_dataset, process_errors : callable
+        Optional transformation functions for model, dataset, and errors.
+
+    Returns
+    -------
+    float
+        Log-likelihood value.
+    """
+    log_f = theta[-1]
+    theta = theta[:-1]
+
+    # Generate model output
+    model_output = model(theta, system_parameters, system_mm, configuration_list,
+                         s_in=s_in, process_model=process_model)
+
+    dataset = jnp.array(dataset)
+    errors = jnp.array(errors)
+
+    if process_dataset is not None:
+        dataset = process_dataset(copy.deepcopy(dataset))
+    if process_errors is not None:
+        errors = process_errors(copy.deepcopy(errors), copy.deepcopy(dataset))
+
+    sigma2 = errors**2 + jnp.exp(2 * log_f)
+    return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
+
 def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
          s_in=None, logl_function=None, process_dataset=None, process_errors=None, 
          process_model=None):
@@ -483,25 +589,27 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     else: 
         return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
 
+@jit
 def build_differences_and_sums(intensities):
     '''
     Assume that the input intensities are organized in pairs. Such that
     '''
     # Making sure that intensities is a numpy array
-    intensities = np.array(intensities)
+    intensities = jnp.array(intensities)
 
     differences = intensities[::2]-intensities[1::2]
     sums = intensities[::2]+intensities[1::2]
 
     return differences, sums
 
+@jit
 def build_double_differences_and_sums(differences, sums):
     '''
     Assume that the input intensities are organized in pairs. Such that
     '''
     # Making sure that differences and sums are numpy arrays
-    differences = np.array(differences)
-    sums = np.array(sums)
+    differences = jnp.array(differences)
+    sums = jnp.array(sums)
 
     double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
     double_sums = (differences[::2]+differences[1::2])/(sums[::2]+sums[1::2])

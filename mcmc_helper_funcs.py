@@ -13,15 +13,12 @@ def log_prob(theta, system_mm, dataset, errors, configuration_list,
     if not np.isfinite(lp):
         return -np.inf
     return lp + logl_function(
-        theta, system_mm, dataset, errors, configuration_list, p_keys,
+        theta, p_keys, system_mm, dataset, errors, configuration_list,
         s_in=s_in,
         process_model=process_model,
         process_dataset=process_dataset,
         process_errors=process_errors
     )
-
-def gaussian_prior(x, mu, sigma):
-    return -0.5 * ((x - mu) / sigma) ** 2
 
 def log_prior(theta, keys, prior_dict, bounds_dict):
     p_dict = unflatten_p(theta, keys)
@@ -32,3 +29,11 @@ def log_prior(theta, keys, prior_dict, bounds_dict):
         if comp in prior_dict and param in prior_dict[comp]:
             logp += prior_dict[comp][param](val)
     return logp
+
+def gaussian_prior(x, mu, sigma):
+    return -0.5 * ((x - mu) / sigma) ** 2
+
+def uniform_prior(x, low, high):
+    if low <= x <= high:
+        return 0.0  # log(1) = 0
+    return -np.inf

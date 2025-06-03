@@ -75,9 +75,9 @@ print(f"Auto-detected: {pool_processes} processes, {nwalkers} walkers for {ndim}
 
 # Define bounds and priors for each parameter (customize as needed)
 bounds = {
-    "wollaston": {
-        "transmission_ratio": (0, 2)
-    },
+    # "wollaston": {
+    #     "transmission_ratio": (0, 2)
+    # },
     "dichroic": {
         "phi": (-2 * np.pi, 2 * np.pi),
         "epsilon": (0, 1),
@@ -107,21 +107,22 @@ bounds = {
 priors = {}
 
 # Initially setting Gaussian priors for all values
-# TODO: Make sure the prior is NOT centered around the starting guess - uniform is better
-for component, params in p0.items():
+# Set uniform priors based on bounds
+priors = {}
+for component, param_bounds in bounds.items():
     priors[component] = {}
-    for param, val in params.items():
-        priors[component][param] = partial(mcmc.gaussian_prior, mu = val, sigma = 0.1 * abs(val))  # Gaussian centered at val
+    for param, (low, high) in param_bounds.items():
+        priors[component][param] = partial(mcmc.uniform_prior, low=low, high=high)
 
 # Custom changing the offset angle priors to be near zero, with 1 degree std
 offset_prior = partial(mcmc.gaussian_prior, mu=0, sigma=1)
 priors["flc"]["delta_theta"] = offset_prior
 priors["hwp"]["delta_theta"] = offset_prior
-priors["flc"]["theta"] = offset_prior
+priors["lp"]["theta"] = offset_prior
 
 # Saving parameters
-output_h5_file = "675nm_no_IMR_offset_with_dichroic.h5"
-nsteps = 10000
+output_h5_file = "675nm_no_IMR_offset_with_dichroic_uniform_priors.h5"
+nsteps = 40000
 s_in = np.array([1, 0, 0, 0])
 
 # Run MCMC with emcee

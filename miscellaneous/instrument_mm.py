@@ -1,6 +1,6 @@
 from pyMuellerMat import common_mms as cmm
 from pyMuellerMat import MuellerMat
-import Github.vampires_calibration.miscellaneous.helper_funcs as funcs
+import helper_funcs as funcs
 import numpy as np
 
 def full_system_mueller_matrix(system_dict):
