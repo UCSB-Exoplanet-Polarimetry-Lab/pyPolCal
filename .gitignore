@@ -1,4 +1,5 @@
 *.pyc
+*.h5
 20230914_hwp_calib_from_Miles.ipynb
 /figures
 /__pycache__
