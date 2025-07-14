@@ -1,4 +1,10 @@
 import numpy as np
+from astropy.io import fits
+from astropy.coordinates import Angle
+from photutils.aperture import RectangularAperture
+from photutils.aperture import aperture_photometry
+from pathlib import Path
+import re
 import pandas as pd
 import pyMuellerMat
 from pyMuellerMat.common_mm_functions import *
@@ -16,8 +22,50 @@ import os
 from functools import partial
 
 #######################################################
-###### Functions related to reading in .csv values ####
+###### Functions related to reading/writing in .csv values ####
 #######################################################
+
+# function to fix corrupted hwp data
+def fix_hwp_angles(csv_file_path, nderotator=8):
+    '''Take corrupted HWP angles and replace them with assumed values
+    in a new csv titled {old_title}_fixed.
+
+    Parameters:
+    -----------
+    csv_file_path : str or Path
+        Path to the specified CSV file containing the corrupted HWP angles.
+    
+    nderotator : int
+        Number of derotator angles (assumed to be 8).
+    Returns:
+    --------
+    None
+    '''
+    # check if csv_file_path is a valid file path
+
+    csv_file_path = Path(csv_file_path)
+    if not csv_file_path.is_file():
+        raise FileNotFoundError(f"File not found: {csv_file_path}")
+    
+    # read csv file into pandas dataframe
+
+    df = pd.read_csv(csv_file_path)
+
+    # check if 'RET-ANG1' column is present
+
+    if 'RET-ANG1' not in df.columns:
+        raise ValueError("Column 'RET-ANG1' is missing from the CSV file.")
+    
+    hwp_angles = np.linspace(0, 90, 9) # define assumed HWP angles
+    hwp_angles_assumed = np.tile(hwp_angles, nderotator)  # repeat for n derotator angles
+
+    # save to new csv file with '_fixed' suffix
+
+    fixed_csv_path = csv_file_path.with_name(csv_file_path.stem + '_fixed.csv')
+    df.to_csv(fixed_csv_path, index=False)
+
+    print(f"Fixed HWP angles saved to {fixed_csv_path}")
+
 
 # Function to safely parse the stored array-like strings
 def parse_array_string(x):
@@ -31,37 +79,131 @@ def parse_array_string(x):
         return np.array(x)  # Already in the correct format
     return np.nan  # If neither, return NaN
 
-# TODO: Test the MBI function
-def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
+
+def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin):
+    """Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
+    single_sum, norm_single_diff, and wavelength values for a wavelength bin from each fits cube in the directory.
+
+    FITS parameters are extracted from raw files, while single sum and difference are calculated using the
+    fits cube data and the defined rectangular apertures.
+    If the necessary header keywords are not present, the values will be set to NaN.
+
+    Note - This function assumes that the raw and extracted cubes have the same number in the filepath. If
+    you processed your cubes in the CHARIS DPP, this is not the case. 
+    
+    Parameters:
+    -----------
+    fits_directory_path : str or Path
+        Path to the directory containing CHARIS fits cubes.
+        
+    raw_cube_path : str or Path
+        Path to the directory containing the matching raw CHARIS FITS files.
+
+    output_csv_path : str or Path
+        Path where the output csv will be created.
+
+    wavelength_bin : int
+        Index of the wavelength bin to analyze (0-based).
+
+    Returns:
+    --------
+    None
+    """
+    # check for valid file paths
+
+    cube_directory_path = Path(cube_directory_path)
+    raw_cube_path = Path(raw_cube_path)
+    output_csv_path = Path(output_csv_path)
+
+    if not cube_directory_path.is_dir():
+        raise NotADirectoryError(f"Directory not found: {cube_directory_path}")
+    if output_csv_path.suffix != '.csv':
+        raise ValueError(f"Output path must be a CSV file, got {output_csv_path}")
+    if not raw_cube_path.is_dir():
+        raise NotADirectoryError(f"Raw cube directory does not exist: {raw_cube_path}")
+    if wavelength_bin > 21:
+        raise ValueError(f"This function is currently only compatible with lowres mode, with 22 wavelength bins.")
+    # prepare output csv file
+
+    output_csv_path = Path(output_csv_path)
+    with open(output_csv_path, 'w') as f:
+        f.write("filepath,D_IMRANG,RET-ANG1,single_sum,norm_single_diff,wavelength_bin\n")
+
+        # iterate over all fits files in the directory
+
+        for fits_file in sorted(cube_directory_path.glob('*.fits')):
+            try:
+
+                # check if corresponding raw fits file exists
+                 
+                match = re.search(r"(\d{8})", fits_file.name)
+                if not match:
+                    raise ValueError(f"Could not extract 8-digit ID from filename {fits_file.name}")
+                fits_id = match.group(1)
+                raw_candidates = list(raw_cube_path.glob(f"*{fits_id}*.fits"))
+                if not raw_candidates:
+                    raise FileNotFoundError(f"No raw FITS file found for ID {fits_id}")
+                raw_fits = raw_candidates[0]
+                
+                with fits.open(raw_fits) as hdul_raw:
+                    raw_header = hdul_raw[0].header
+                    d_imrang = raw_header.get("D_IMRANG", np.nan)
+                    ret_ang1 = raw_header.get("RET-ANG1", np.nan)
+
+                # round d_imrang to nearest 0.5
+               
+                d_imrang = (np.round(d_imrang * 2) / 2)
+
+                # calculate single sum and normalized single difference
+
+                single_sum,norm_single_diff = single_sum_and_diff(fits_file, wavelength_bin)
+
+                # wavelength bins for lowres mode
+
+                bins = np.array([1159.5614, 1199.6971, 1241.2219, 1284.184 , 1328.6331, 1374.6208,
+                1422.2002, 1471.4264, 1522.3565, 1575.0495, 1629.5663, 1685.9701,
+                1744.3261, 1804.7021, 1867.1678, 1931.7956, 1998.6603, 2067.8395,
+                2139.4131, 2213.4641, 2290.0781, 2369.3441])
+                
+                # write to csv file
+
+                f.write(f"{fits_file},{d_imrang},{ret_ang1},{single_sum},{norm_single_diff},{bins[wavelength_bin]}\n")
+            except Exception as e:
+                print(f"Error processing {fits_file}: {e}")
+    print(f"CSV file written to {output_csv_path}")
+
+
+def read_csv(file_path):
+    """Takes a CSV file path containing "D_IMRANG", 
+    "RET-ANG1", "single_sum", "norm_single_diff", "diff_std", "sum_std",
+    and returns interleaved values, standard deviations, and configuration list.
+
+    Parameters:
+    -----------
+    file_path : str or Path
+        Path to the CSV.
+
+    Returns:
+    -----------
+    interleaved_values : np.ndarray
+        Interleaved values from "norm_single_diff" and "single_sum".
+    interleaved_stds : np.ndarray
+        Interleaved standard deviations from "diff_std" and "sum_std".
+    configuration_list : list
+        List of dictionaries containing configuration data for each row.
+    """
+    file_path = Path(file_path)
+     
     # Read CSV file
     df = pd.read_csv(file_path)
     
-    MBI_filters = [760, 720, 670, 610]
-
-    # Process only one filter if applicable
-    if obs_mode == "MBI":
-        MBI_index = MBI_filters.index(obs_filter)
-        df = df[df["OBS-MOD"] == "IPOL_MBI"]
-    elif obs_filter is not None:
-        df = df[df["FILTER01"] == obs_filter]
-
-    # print(type(df["diff"].iloc[0]))
-
     # Convert relevant columns to float (handling possible conversion errors)
     for col in ["RET-POS1", "D_IMRANG"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible
 
-    # Handle MBI mode: Convert stored strings to arrays and extract MBI_index-th value
-    if obs_mode == "MBI":
-        for col in ["diff", "sum", "diff_std", "sum_std"]:
-            df[col] = df[col].apply(parse_array_string)  # Convert string to array
-            df[col] = df[col].apply(lambda x: x[MBI_index] if isinstance(x, np.ndarray) and len(x) > MBI_index else np.nan)  # Extract MBI_index-th element safely
-    else:
-       for col in ["diff", "sum", "diff_std", "sum_std"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible 
 
     # Interleave values from "diff" and "sum"
-    interleaved_values = np.ravel(np.column_stack((df["diff"].values, df["sum"].values)))
+    interleaved_values = np.ravel(np.column_stack((df["norm_single_diff"].values, df["single_sum"].values)))
 
     # Interleave values from "diff_std" and "sum_std"
     interleaved_stds = np.ravel(np.column_stack((df["diff_std"].values, df["sum_std"].values)))
@@ -73,18 +215,10 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
         hwp_theta = row["RET-POS1"]
         imr_theta = row["D_IMRANG"]
 
-        flc_theta = row["U_FLC"]
-
-        if flc_theta == "A":
-             flc_theta = 0
-        elif flc_theta == "B":
-             flc_theta = 45
-
         # Building dictionary
         row_data = {
             "hwp": {"theta": hwp_theta},
-            "image_rotator": {"theta": imr_theta},
-            "flc": {"theta": flc_theta}
+            "image_rotator": {"theta": imr_theta}
         }
 
         # Append two configurations for diff and sum
@@ -609,6 +743,206 @@ def process_errors(input_errors, input_dataset):
 #######################################################
 ###### Functions related to plotting ##################
 #######################################################
+
+# function for calculating single sum and difference
+def single_sum_and_diff(fits_cube_path, wavelength_bin):
+    """Calculate normalized single difference and sum between left and right beam 
+    rectangular aperture photometry from a CHARIS fits cube.
+    
+    Parameters:
+    -----------
+    fits_cube_path : str or Path
+        Path to the CHARIS fits cube file.
+        
+    wavelength_bin : int
+        Index of the wavelength bin to analyze (0-based).
+    
+    Returns:
+    --------
+    np.ndarray
+        Array with two elements:
+            [0] single_sum : float
+                Single sum of left and right beam apertures:
+                (R + L)
+            [1] norm_single_diff : float
+                Normalized single difference of left and right beam apertures:
+                (R - L) / (R + L)
+    """
+    
+    # check if fits_cube_path is a valid file path
+
+    fits_cube_path = Path(fits_cube_path)
+    if not fits_cube_path.is_file():
+        raise FileNotFoundError(f"File not found: {fits_cube_path}")
+    
+    # retrieve fits cube data
+
+    hdul = fits.open(fits_cube_path)
+    cube_data = hdul[1].data
+
+    # check if data is a 3d cube (wavelength, x, y)
+
+    if cube_data.ndim != 3:
+        raise ValueError("Input data must be a 3D cube (wavelength, x, y).")
+        
+    # check if wavelength_bin is within bounds
+
+    if not (0 <= wavelength_bin < cube_data.shape[0]):
+        raise ValueError(f"wavelength_bin must be between 0 and {cube_data.shape[0] - 1}.")
+    
+    image_data = cube_data[wavelength_bin]
+
+    # define rectangular apertures for left and right beams
+    # note- these values are based on rough analysis and may need adjustment for high precision
+
+    centroid_lbeam = [71.75, 86.25] 
+    centroid_rbeam = [131.5, 116.25]
+    aperture_width = 44.47634202584561
+    aperture_height = 112.3750880855165
+    theta = 0.46326596610192305
+
+    # define apertures perform aperture photometry 
+
+    aperture_lbeam = RectangularAperture(centroid_lbeam, aperture_width, aperture_height, theta=theta)
+    aperture_rbeam = RectangularAperture(centroid_rbeam, aperture_width, aperture_height, theta=theta)
+    phot_lbeam = aperture_photometry(image_data, aperture_lbeam)
+    phot_rbeam = aperture_photometry(image_data, aperture_rbeam)
+
+    # calculate normalized single difference and sum
+    single_sum = phot_rbeam['aperture_sum'][0] + phot_lbeam['aperture_sum'][0]
+    norm_single_diff = (phot_rbeam['aperture_sum'][0] - phot_lbeam['aperture_sum'][0]) / single_sum
+    return np.array([single_sum, norm_single_diff])
+    
+
+def plot_single_differences(csv_file_path, plot_save_path=None):
+    """Plot norm single differences as a function of the HWP angle for one 
+    wavelength bin from a CSV containing headers "D_IMRANG" , "RET-ANG1" , 
+    "norm_single_diff", and "wavelength_bin".
+    This can be obtained from the write_fits_info_to_csv function.
+
+    Parameters:
+    -----------
+    csv_file_path : str or Path
+        Path to the specified CSV file.
+
+    plot_save_path : str or Path, optional
+        If provided, the plot will be saved to this path. Must end with '.png'.
+
+    Returns: 
+    --------
+    None
+    """
+    # check if csv_file_path is a valid file path
+
+    csv_file_path = Path(csv_file_path)
+    if not csv_file_path.is_file():
+        raise FileNotFoundError(f"File not found: {csv_file_path}")
+    
+    # read csv file into pandas dataframe
+
+    df = pd.read_csv(csv_file_path)
+
+    # check if necessary columns are present
+
+    required_columns = ['D_IMRANG', 'RET-ANG1', 'norm_single_diff', 'wavelength_bin']
+    for col in required_columns:
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' is missing from the CSV file.")
+        
+    # check for multiple wavelength bins
+    unique_bins = df['wavelength_bin'].unique()
+    if len(unique_bins) > 1:
+        raise ValueError("CSV file contains multiple wavelength bins. Please filter to a single bin before plotting.")
+    
+    # extract data for plotting
+
+    hwp_angles = df['RET-ANG1'].values
+    single_diffs = df['norm_single_diff'].values
+    wavelength_bin = df['wavelength_bin'].values[0]
+    derotator_angles = df['D_IMRANG'].values
+
+    # plot single differences as a function of HWP angle for each derotator angle
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    for derotator_angle in np.unique(derotator_angles):
+        mask = derotator_angles == derotator_angle
+        ax.plot(hwp_angles[mask], single_diffs[mask], marker='o', label=f'{derotator_angle}°')
+    ax.set_xlabel('HWP Angle (degrees)')
+    ax.set_ylabel('Normalized Single Difference')
+    ax.set_title(f'Single Differences vs HWP Angle at {wavelength_bin} nm')
+    ax.legend(loc='lower right', fontsize='small', title= r'IMR $\theta$')
+    ax.grid()
+    plt.show()
+
+    # save plot if a path is provided
+
+    if plot_save_path:
+        plot_save_path = Path(plot_save_path)
+        if not plot_save_path.parent.is_dir():
+            raise NotADirectoryError(f"Directory does not exist: {plot_save_path.parent}")
+        if not plot_save_path.suffix == '.png':
+            raise ValueError("Plot save path must end with '.png'.")
+        fig.savefig(plot_save_path)
+        print(f"Plot saved to {plot_save_path}")
+
+# function for quick csv and plotting
+def quick_data_all_bins(cube_directory_path, raw_directory_path, csv_directory, plot_directory):
+    """Plot norm single differences as a function of the HWP angle 
+    for each derotator angle and write a CSV containing headers "D_IMRANG" , "RET-ANG1" , 
+    "norm_single_diff", and "wavelength_bin". Perform this for all 21 wavelength bins.
+    
+    Parameters:
+    -----------
+    cube_directory_path : str or Path
+        Path to the directory containing CHARIS fits cubes.
+        
+    raw_directory_path : str or Path
+        Path to the directory containing the matching raw CHARIS FITS files.
+
+    csv_directory : str or Path
+        Directory where the output csv files will be created.
+
+    plot_directory : str or Path
+        Directory where the output plots will be created.
+        
+    Returns:
+    --------
+    None
+    """
+    # check if cube_directory_path and raw_directory_path are valid paths
+    csv_directory = Path(csv_directory)
+    plot_directory = Path(plot_directory)
+    cube_directory_path = Path(cube_directory_path)
+    raw_directory_path = Path(raw_directory_path)
+    
+    if not cube_directory_path.is_dir():
+        raise NotADirectoryError(f"Directory not found: {cube_directory_path}")
+    if not raw_directory_path.is_dir():
+        raise NotADirectoryError(f"Raw directory does not exist: {raw_directory_path}")
+    if not csv_directory.is_dir():
+        raise NotADirectoryError(f"CSV directory does not exist: {csv_directory}")
+    if not plot_directory.is_dir():
+        raise NotADirectoryError(f"Plot directory does not exist: {plot_directory}")
+    # iterate over all wavelength bins
+
+    for bin in range(0, 22):
+
+        # write csv file for each bin
+
+        csv_file_path = Path(csv_directory) / f'charis_cube_info_bin{bin}.csv'
+        write_fits_info_to_csv(
+            cube_directory_path=cube_directory_path,
+            raw_cube_path=raw_directory_path,
+            output_csv_path=csv_file_path,
+            wavelength_bin=bin
+        )
+
+        # plot single differences for each bin
+
+        plot_save_path = Path(plot_directory) / f'diffvshwp_bin{bin}.png'
+        plot_single_differences(csv_file_path, plot_save_path)
+
 
 def plot_data_and_model(interleaved_values, interleaved_stds, model, 
     configuration_list, imr_theta_filter=None, wavelength=None, save_path = None):
