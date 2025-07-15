@@ -58,11 +58,12 @@ def fix_hwp_angles(csv_file_path, nderotator=8):
     
     hwp_angles = np.linspace(0, 90, 9) # define assumed HWP angles
     hwp_angles_assumed = np.tile(hwp_angles, nderotator)  # repeat for n derotator angles
-
+    df["RET-ANG1"] = hwp_angles_assumed # replace 'RET-ANG1' with assumed values
     # save to new csv file with '_fixed' suffix
-
+    
     fixed_csv_path = csv_file_path.with_name(csv_file_path.stem + '_fixed.csv')
     df.to_csv(fixed_csv_path, index=False)
+  
 
     print(f"Fixed HWP angles saved to {fixed_csv_path}")
 
@@ -175,8 +176,9 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
 
 def read_csv(file_path):
     """Takes a CSV file path containing "D_IMRANG", 
-    "RET-ANG1", "single_sum", "norm_single_diff", "diff_std", "sum_std",
-    and returns interleaved values, standard deviations, and configuration list.
+    "RET-ANG1", "single_sum", "norm_single_diff", "diff_std", and "sum_std",
+    for one wavelength bin and returns interleaved values, standard deviations, 
+    and configuration list.
 
     Parameters:
     -----------
@@ -198,7 +200,7 @@ def read_csv(file_path):
     df = pd.read_csv(file_path)
     
     # Convert relevant columns to float (handling possible conversion errors)
-    for col in ["RET-POS1", "D_IMRANG"]:
+    for col in ["RET-ANG1", "D_IMRANG"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible
 
 
@@ -212,7 +214,7 @@ def read_csv(file_path):
     configuration_list = []
     for index, row in df.iterrows():
         # Extracting values from relevant columns
-        hwp_theta = row["RET-POS1"]
+        hwp_theta = row["RET-ANG1"]
         imr_theta = row["D_IMRANG"]
 
         # Building dictionary
