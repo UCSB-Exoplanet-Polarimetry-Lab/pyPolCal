@@ -1,5 +1,6 @@
 *.pyc
 *.h5
+/mcmc/reslut.json
 20230914_hwp_calib_from_Miles.ipynb
 /figures
 /__pycache__
