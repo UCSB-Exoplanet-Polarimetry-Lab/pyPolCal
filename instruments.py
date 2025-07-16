@@ -14,6 +14,7 @@ from multiprocessing import Pool
 import copy
 import os
 from functools import partial
+from numba import jit
 
 #######################################################
 ###### Functions related to reading in .csv values ####
@@ -32,7 +33,7 @@ def parse_array_string(x):
     return np.nan  # If neither, return NaN
 
 # TODO: Test the MBI function
-def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
+def read_csv(file_path, obs_mode="IPOL", obs_filter=None, flc_a_theta = 0, flc_b_theta = 45):
     # Read CSV file
     df = pd.read_csv(file_path)
     
@@ -42,6 +43,8 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
     if obs_mode == "MBI":
         MBI_index = MBI_filters.index(obs_filter)
         df = df[df["OBS-MOD"] == "IPOL_MBI"]
+    elif obs_mode == "Narrowband":
+        df = df[df["FILTER02"] == obs_filter]
     elif obs_filter is not None:
         df = df[df["FILTER01"] == obs_filter]
 
@@ -56,6 +59,12 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
         for col in ["diff", "sum", "diff_std", "sum_std"]:
             df[col] = df[col].apply(parse_array_string)  # Convert string to array
             df[col] = df[col].apply(lambda x: x[MBI_index] if isinstance(x, np.ndarray) and len(x) > MBI_index else np.nan)  # Extract MBI_index-th element safely
+    elif obs_mode == "Narrowband":
+        for col in ["diff", "sum"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible
+            # TODO: Remove this after calculating diff and sum std of the narrowband filters
+            df["diff_std"] = 0.001
+            df["sum_std"] = 0.001
     else:
        for col in ["diff", "sum", "diff_std", "sum_std"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible 
@@ -76,9 +85,9 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
         flc_theta = row["U_FLC"]
 
         if flc_theta == "A":
-             flc_theta = 0
+             flc_theta = flc_a_theta
         elif flc_theta == "B":
-             flc_theta = 45
+             flc_theta = flc_b_theta
 
         # Building dictionary
         row_data = {
@@ -207,7 +216,7 @@ def run_mcmc(
     priors, bounds, logl_function, output_h5_file,
     nwalkers=64, nsteps=10000, pool_processes=None, 
     s_in=np.array([1, 0, 0, 0]), process_dataset=None, 
-    process_errors=None, process_model=None, resume=True
+    process_errors=None, process_model=None, resume=True, multiprocess = True
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
@@ -232,10 +241,15 @@ def run_mcmc(
         priors, bounds, logl_function
     )
 
-    with Pool(processes=pool_processes) as pool:
+    if multiprocess:
+        with Pool(processes=pool_processes) as pool:
+            sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob, 
+                args=args, pool=pool, backend=backend)
+    else:
         sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob, 
-            args=args, pool=pool, backend=backend)
-        sampler.run_mcmc(pos, nsteps, progress=True)
+                args=args, backend=backend)
+
+    sampler.run_mcmc(pos, nsteps, progress=True)
 
     return sampler, p_keys
 
@@ -406,6 +420,7 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
 
     return output_intensities
 
+# @jit
 def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
          s_in=None, logl_function=None, process_dataset=None, process_errors=None, 
          process_model=None):
@@ -495,7 +510,7 @@ def build_differences_and_sums(intensities):
 
     return differences, sums
 
-def build_double_differences_and_sums(differences, sums):
+def build_double_differences_and_sums(differences, sums, normalized = True):
     '''
     Assume that the input intensities are organized in pairs. Such that
     '''
@@ -503,8 +518,12 @@ def build_double_differences_and_sums(differences, sums):
     differences = np.array(differences)
     sums = np.array(sums)
 
-    double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
-    double_sums = (differences[::2]+differences[1::2])/(sums[::2]+sums[1::2])
+    if normalized:
+        double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
+        double_sums = (differences[::2]+differences[1::2])/(sums[::2]+sums[1::2])
+    else:
+        double_differences = differences[::2]-differences[1::2]
+        double_sums = differences[::2]+differences[1::2]
 
     return double_differences, double_sums
 
@@ -568,33 +587,34 @@ def process_errors(input_errors, input_dataset):
     input_errors = np.array(input_errors)
     input_dataset = np.array(input_dataset)
 
-    # print("Pre-processing Errors shape: ", np.shape(input_errors))
-    # print("Pre-processing Dataset shape: ", np.shape(input_dataset))
+    # Separating out differences, sums, and corresponding errors
+    single_differences = input_dataset[::2]
+    single_sums = input_dataset[1::2]
+    single_difference_errors = input_errors[::2]
+    single_sum_errors = input_errors[1::2]
+
+    # Compute double differences and double sums - changed so that interleaved values are the doubl
+    double_differences_numerators, double_sums_numerators = \
+        build_double_differences_and_sums(single_differences, single_sums, normalized=False)
+    normalized_double_differences, normalized_double_sums = \
+        build_double_differences_and_sums(single_differences, single_sums, normalized=True)
 
     # Compute errors for differences and sums
-    differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
-    sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
-
-    # print("Differences Errors shape: ", np.shape(differences_errors))
-    # print("Sums Errors shape: ", np.shape(sums_errors))
-
-    # Compute double differences and double sums
-    differences = input_dataset[::2] - input_dataset[1::2]
-    sums = input_dataset[::2] + input_dataset[1::2]
-
-    denominator = (sums[::2] + sums[1::2])  # This is used for normalization
+    # NOTE: All the numerator and denominator errors are all the same
+    differences_errors = np.sqrt(single_difference_errors[::2]**2 + single_difference_errors[1::2]**2)
+    sums_errors = np.sqrt(single_sum_errors[::2]**2 + single_sum_errors[1::2]**2)
+    denominator_errors = sums_errors
+    denominator = (single_sums[::2] + single_sums[1::2])  # This is used for normalization
 
     # Compute propagated errors for double differences
-    double_differences_errors = np.sqrt(
-        (sums[::2] + sums[1::2])**2 * (differences_errors[::2]**2 + differences_errors[1::2]**2) + 
-        (differences[::2] - differences[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
-    ) / (denominator**2)
-
-    # Compute propagated errors for double sums
-    double_sums_errors = np.sqrt(
-        (sums[::2] + sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2) + 
-        (sums[::2] - sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
-    ) / (denominator**2)
+    double_differences_errors = normalized_double_differences ** 2 * np.sqrt(
+        (differences_errors / double_differences_numerators) ** 2 + 
+        (denominator_errors / denominator) ** 2
+    )
+    double_sums_errors = normalized_double_sums ** 2 * np.sqrt(
+        (sums_errors / double_sums_numerators) ** 2 + 
+        (denominator_errors / denominator) ** 2
+    )
 
     # print("Double Differences Errors shape: ", np.shape(double_differences_errors))
     # print("Double Sums Errors shape: ", np.shape(double_sums_errors))

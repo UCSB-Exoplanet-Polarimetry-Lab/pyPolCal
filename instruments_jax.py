@@ -35,7 +35,8 @@ def parse_array_string(x):
     return np.nan  # If neither, return NaN
 
 # TODO: Test the MBI function
-def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
+def read_csv(file_path, obs_mode="IPOL", obs_filter=None, flc_theta_a = 0, 
+    flc_theta_b = 45):
     # Read CSV file
     df = pd.read_csv(file_path)
     
@@ -79,9 +80,9 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
         flc_theta = row["U_FLC"]
 
         if flc_theta == "A":
-             flc_theta = 0
+             flc_theta = flc_theta_a
         elif flc_theta == "B":
-             flc_theta = 45
+             flc_theta =flc_theta_b
 
         # Building dictionary
         row_data = {
@@ -176,9 +177,11 @@ def update_system_mm(parameter_values, system_parameters, system_mm):
                 # print("Parameter Value: " + str(parameter_values[i]))
                 system_mm.master_property_dict[component_name][parameter_name] = parameter_values[i]
                 # print(system_mm.evaluate())
-            else:
+            elif parameter_name != "log_f":
+            # Carving out print statement exceptions for log_f
                 print(f"Parameter '{parameter_name}' not found in component '{component_name}'. Skipping...")
-        else:
+        elif component_name != "log_f":
+        # Carving out print statement exceptions for log_f
             print(f"Component '{component_name}' not found in System Mueller Matrix. Skipping...")
     return system_mm
 
@@ -268,11 +271,21 @@ def run_mcmc(
         List of (component, parameter) key pairs used for tracking parameters.
     """
 
-
     p0_values, p_keys = parse_configuration(p0_dict)
 
     if include_log_f:
-        p0_values = p0_values + [log_f]             
+        p0_values = p0_values + [log_f]
+        p_keys.append(("log_f", "log_f"))
+        
+        # Add default bounds for log_f
+        bounds["log_f"] = {"log_f": (-10, 0)}
+
+        # Add default uniform prior for log_f
+        priors.setdefault("log_f", {})
+        priors["log_f"]["log_f"] = {
+            "type": "uniform",
+            "kwargs": {"low": -10, "high": 0}
+        }
 
     ndim = len(p0_values)
 
@@ -469,30 +482,6 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
                    process_errors):
     """
     Log-likelihood function that includes a noise inflation parameter log_f.
-
-    Parameters
-    ----------
-    theta : jnp.ndarray
-        Parameter vector, with the last entry being log_f.
-    system_mm : SystemMuellerMatrix
-        Optical system Mueller matrix.
-    dataset : np.ndarray
-        Observed data.
-    errors : np.ndarray
-        Measurement uncertainties.
-    configuration_list : list
-        List of measurement configurations.
-    system_parameters : list
-        List of (component, parameter) keys for fitting.
-    s_in : np.ndarray
-        Input Stokes vector.
-    process_model, process_dataset, process_errors : callable
-        Optional transformation functions for model, dataset, and errors.
-
-    Returns
-    -------
-    float
-        Log-likelihood value.
     """
     log_f = theta[-1]
     theta = theta[:-1]
@@ -501,13 +490,19 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
     model_output = model(theta, system_parameters, system_mm, configuration_list,
                          s_in=s_in, process_model=process_model)
 
+    # Convert to jax arrays
     dataset = jnp.array(dataset)
     errors = jnp.array(errors)
 
+    # Save raw copies before processing
+    raw_dataset = copy.deepcopy(dataset)
+    raw_errors = copy.deepcopy(errors)
+
+    # Apply processing
     if process_dataset is not None:
-        dataset = process_dataset(copy.deepcopy(dataset))
+        dataset = process_dataset(raw_dataset)
     if process_errors is not None:
-        errors = process_errors(copy.deepcopy(errors), copy.deepcopy(dataset))
+        errors = process_errors(raw_errors, raw_dataset)
 
     sigma2 = errors**2 + jnp.exp(2 * log_f)
     return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
@@ -603,7 +598,7 @@ def build_differences_and_sums(intensities):
     return differences, sums
 
 @jit
-def build_double_differences_and_sums(differences, sums):
+def build_double_differences_and_sums(differences, sums, normalized = True):
     '''
     Assume that the input intensities are organized in pairs. Such that
     '''
@@ -611,8 +606,12 @@ def build_double_differences_and_sums(differences, sums):
     differences = jnp.array(differences)
     sums = jnp.array(sums)
 
-    double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
-    double_sums = (differences[::2]+differences[1::2])/(sums[::2]+sums[1::2])
+    if normalized:
+        double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
+        double_sums = (differences[::2]+differences[1::2])/(sums[::2]+sums[1::2])
+    else:
+        double_differences = differences[::2]-differences[1::2]
+        double_sums = differences[::2]+differences[1::2]
 
     return double_differences, double_sums
 
@@ -676,33 +675,31 @@ def process_errors(input_errors, input_dataset):
     input_errors = np.array(input_errors)
     input_dataset = np.array(input_dataset)
 
-    # print("Pre-processing Errors shape: ", np.shape(input_errors))
-    # print("Pre-processing Dataset shape: ", np.shape(input_dataset))
+    single_differences = input_dataset[::2]
+    single_sums = input_dataset[1::2]
+
+    # Compute double differences and double sums - changed so that interleaved values are the doubl
+    double_differences_numerators, double_sums_numerators = \
+        build_double_differences_and_sums(single_differences, single_sums, normalized=False)
+    normalized_double_differences, normalized_double_sums = \
+        build_double_differences_and_sums(single_differences, single_sums, normalized=True)
 
     # Compute errors for differences and sums
+    # NOTE: All the numerator and denominator errors are all the same
     differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
     sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
-
-    # print("Differences Errors shape: ", np.shape(differences_errors))
-    # print("Sums Errors shape: ", np.shape(sums_errors))
-
-    # Compute double differences and double sums
-    differences = input_dataset[::2] - input_dataset[1::2]
-    sums = input_dataset[::2] + input_dataset[1::2]
-
-    denominator = (sums[::2] + sums[1::2])  # This is used for normalization
+    denominator_errors = sums_errors
+    denominator = (single_sums[::2] + single_sums[1::2])  # This is used for normalization
 
     # Compute propagated errors for double differences
-    double_differences_errors = np.sqrt(
-        (sums[::2] + sums[1::2])**2 * (differences_errors[::2]**2 + differences_errors[1::2]**2) + 
-        (differences[::2] - differences[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
-    ) / (denominator**2)
-
-    # Compute propagated errors for double sums
-    double_sums_errors = np.sqrt(
-        (sums[::2] + sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2) + 
-        (sums[::2] - sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
-    ) / (denominator**2)
+    double_differences_errors = normalized_double_differences ** 2 * np.sqrt(
+        (differences_errors / double_differences_numerators) ** 2 + 
+        (denominator_errors / denominator) ** 2
+    )
+    double_sums_errors = normalized_double_sums ** 2 * np.sqrt(
+        (sums_errors / double_sums_numerators) ** 2 + 
+        (denominator_errors / denominator) ** 2
+    )
 
     # print("Double Differences Errors shape: ", np.shape(double_differences_errors))
     # print("Double Sums Errors shape: ", np.shape(double_sums_errors))
@@ -719,42 +716,18 @@ def process_errors(input_errors, input_dataset):
 #######################################################
 
 def plot_data_and_model(interleaved_values, interleaved_stds, model, 
-    configuration_list, imr_theta_filter=None, wavelength=None, save_path = None):
-    """
-    Plots double difference and double sum measurements alongside model predictions,
-    grouped by image rotator angle (D_IMRANG). Optionally filters by a specific 
-    image rotator angle and displays a wavelength in the plot title.
+    configuration_list, imr_theta_filter=None, wavelength=None, 
+    save_path=None, legend=True):
 
-    Parameters
-    ----------
-    interleaved_values : np.ndarray
-        Interleaved array of observed double difference and double sum values.
-        Expected format: [dd1, ds1, dd2, ds2, ...].
+    import numpy as np
+    import matplotlib.pyplot as plt
 
-    interleaved_stds : np.ndarray
-        Interleaved array of standard deviations corresponding to the observed values.
+    # Accept either a single model or a list of models
+    if isinstance(model, np.ndarray) and model.ndim == 1:
+        model_outputs = [model]
+    else:
+        model_outputs = model
 
-    model : np.ndarray
-        Interleaved array of model-predicted double difference and double sum values.
-
-    configuration_list : list of dict
-        List of system configurations (one for each measurement), where each dictionary 
-        contains component settings like HWP and image rotator angles.
-
-    imr_theta_filter : float, optional
-        If provided, only measurements with this image rotator angle (rounded to 0.1°) 
-        will be plotted.
-
-    wavelength : str or int, optional
-        Wavelength (e.g., 670 or "670") to display as a centered title with "nm" units 
-        (e.g., "670nm").
-
-    Returns
-    -------
-    None
-        Displays two subplots: one for double differences and one for double sums,
-        including error bars and model curves.
-    """
     # Calculate double differences and sums from interleaved single differences
     interleaved_stds = process_errors(interleaved_stds, interleaved_values)
     interleaved_values = process_dataset(interleaved_values)
@@ -764,8 +737,6 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     ds_values = interleaved_values[1::2]
     dd_stds = interleaved_stds[::2]
     ds_stds = interleaved_stds[1::2]
-    dd_model = model[::2]
-    ds_model = model[1::2]
 
     # Group by image_rotator theta
     dd_by_theta = {}
@@ -779,50 +750,56 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
             continue
 
         if imr_theta not in dd_by_theta:
-            dd_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": [], "model": []}
+            dd_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": []}
+            ds_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": []}
+
         dd_by_theta[imr_theta]["hwp_theta"].append(hwp_theta)
         dd_by_theta[imr_theta]["values"].append(dd_values[i])
         dd_by_theta[imr_theta]["stds"].append(dd_stds[i])
-        dd_by_theta[imr_theta]["model"].append(dd_model[i])
 
-        if imr_theta not in ds_by_theta:
-            ds_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": [], "model": []}
         ds_by_theta[imr_theta]["hwp_theta"].append(hwp_theta)
         ds_by_theta[imr_theta]["values"].append(ds_values[i])
         ds_by_theta[imr_theta]["stds"].append(ds_stds[i])
-        ds_by_theta[imr_theta]["model"].append(ds_model[i])
 
     # Create the plots
     fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True)
 
-    # Double Difference plot
-    ax = axes[0]
-    for theta, d in dd_by_theta.items():
-        err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
+    # Plot data
+    for theta in dd_by_theta:
+        dd = dd_by_theta[theta]
+        ds = ds_by_theta[theta]
+        err = axes[0].errorbar(dd["hwp_theta"], dd["values"], yerr=dd["stds"], fmt='o', label=f"{theta}°")
         color = err[0].get_color()
-        ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-    ax.set_xlabel("HWP θ (deg)")
-    ax.set_ylabel("Double Difference")
-    ax.legend(title="IMR θ")
+        axes[1].errorbar(ds["hwp_theta"], ds["values"], yerr=ds["stds"], fmt='o', color=color)
 
-    # Double Sum plot
-    ax = axes[1]
-    for theta, d in ds_by_theta.items():
-        err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
-        color = err[0].get_color()
-        ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-    ax.set_xlabel("HWP θ (deg)")
-    ax.set_ylabel("Double Sum")
-    ax.legend(title="IMR θ")
+    # Plot model outputs
+    for i, model in enumerate(model_outputs):
+        dd_model = model[::2]
+        ds_model = model[1::2]
+        alpha = 0.1 if i > 0 else 1.0
 
-    # Set a suptitle if wavelength is provided
+        for theta in dd_by_theta:
+            dd = dd_by_theta[theta]
+            ds = ds_by_theta[theta]
+            axes[0].plot(dd["hwp_theta"], dd_model[:len(dd["hwp_theta"])], '-', alpha=alpha)
+            axes[1].plot(ds["hwp_theta"], ds_model[:len(ds["hwp_theta"])], '-', alpha=alpha)
+
+    axes[0].set_xlabel("HWP θ (deg)")
+    axes[0].set_ylabel("Double Difference")
+    if legend:
+        axes[0].legend(title="IMR θ")
+
+    axes[1].set_xlabel("HWP θ (deg)")
+    axes[1].set_ylabel("Double Sum")
+
     if wavelength is not None:
         fig.suptitle(f"{wavelength}nm", fontsize=14)
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for suptitle
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
 
-    if save_path != None:
+    if save_path is not None:
         plt.savefig(save_path)
 
     plt.show()
+
 

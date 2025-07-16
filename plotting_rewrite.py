@@ -3,76 +3,64 @@ import h5py
 import json
 import matplotlib.pyplot as plt
 import corner
-
-import json
-import h5py
-import numpy as np
-from instruments import (
-    read_csv, parse_configuration, generate_system_mueller_matrix,
-    update_system_mm, generate_measurement, process_model, process_dataset,
-    process_errors
+import os
+import shutil
+import instruments_jax as inst
+from instruments_jax import (
+    process_dataset, process_errors, parse_configuration,
+    generate_system_mueller_matrix, update_system_mm,
+    model, plot_data_and_model
 )
-import matplotlib.pyplot as plt
 
-def load_chain_and_labels(h5_filename, txt_filename):
-    """Load the MCMC chain and parameter names from HDF5 and .txt files."""
-    with h5py.File(h5_filename, 'r') as f:
-        chain = f['mcmc']['chain'][:]  # shape should be (nsteps, nwalkers, ndim)
+def load_chain_and_labels(h5_filename, txt_filename, include_logf=False):
+    base, ext = os.path.splitext(h5_filename)
+    h5_copy = base + "_copy" + ext
+    shutil.copy(h5_filename, h5_copy)
+
+    with h5py.File(h5_copy, 'r') as f:
+        chain = f['mcmc']['chain'][:]
 
     with open(txt_filename, 'r') as f:
         p0_dict = json.load(f)
 
     param_names = [f"{comp}.{param}" for comp, params in p0_dict.items() for param in params]
+    if include_logf:
+        param_names.append("log_f")
+
     return chain, param_names
 
-def plot_trace(chain, param_names, burn_in=0, max_walkers=None):
-    """Simplified trace plot for MCMC chains."""
+def plot_trace(chain, param_names, step_range=(0, None), max_walkers=None):
     nsteps, nwalkers, ndim = chain.shape
     if max_walkers is None or max_walkers > nwalkers:
         max_walkers = nwalkers
 
+    start, end = step_range
+    x = np.arange(nsteps)[start:end]
     fig, axs = plt.subplots(ndim, 1, figsize=(10, 2 * ndim), sharex=True)
-    x = np.arange(nsteps)
 
     for i in range(ndim):
         for j in range(max_walkers):
-            axs[i].plot(x[burn_in:], chain[burn_in:, j, i], alpha=0.3)
-        axs[i].axvline(burn_in, color='red', linestyle='--', alpha=0.5)
+            axs[i].plot(x, chain[start:end, j, i], alpha=0.3)
+        axs[i].axvline(x[0], color='red', linestyle='--', alpha=0.5)
         axs[i].set_ylabel(param_names[i])
     axs[-1].set_xlabel("Step")
     plt.tight_layout()
     plt.show()
 
-import numpy as np
-import matplotlib.pyplot as plt
-import corner
+def plot_corner_flat(chain, param_names, step_range=(0, None), median_or_max="median", num_bins=100):
+    flat_chain = chain[step_range[0]:step_range[1], :, :].reshape(-1, chain.shape[-1])
+    converted_chain = flat_chain.copy()
 
-def plot_corner_flat(chain, param_names, burn_in=0, median_or_max="median", num_bins=100):
-    """
-    Generate a corner plot from a 3D MCMC chain with enhanced styling.
-    
-    Parameters
-    ----------
-    chain : np.ndarray
-        MCMC chain with shape (nsteps, nwalkers, nparams).
-    param_names : list of str
-        Names of parameters corresponding to each column of the chain.
-    burn_in : int
-        Number of initial steps to discard as burn-in.
-    median_or_max : str
-        Whether to use "median" or "max" of posterior as truth line.
-    num_bins : int
-        Number of bins to use for histograms.
-    """
-    flat_chain = chain[burn_in:, :, :].reshape(-1, chain.shape[-1])
+    for i, name in enumerate(param_names):
+        if ".phi" in name:
+            converted_chain[:, i] = converted_chain[:, i] / (2 * np.pi)
 
-    # Determine the 'truths' for vertical lines
     if median_or_max == "median":
-        truths = np.median(flat_chain, axis=0)
+        truths = np.median(converted_chain, axis=0)
     elif median_or_max == "max":
         truths = []
-        for i in range(flat_chain.shape[1]):
-            hist, bin_edges = np.histogram(flat_chain[:, i], bins=num_bins)
+        for i in range(converted_chain.shape[1]):
+            hist, bin_edges = np.histogram(converted_chain[:, i], bins=num_bins)
             max_index = np.argmax(hist)
             max_val = (bin_edges[max_index] + bin_edges[max_index + 1]) / 2
             truths.append(max_val)
@@ -80,41 +68,55 @@ def plot_corner_flat(chain, param_names, burn_in=0, median_or_max="median", num_
     else:
         raise ValueError("median_or_max must be 'median' or 'max'")
 
-    # Generate corner plot
     fig = corner.corner(
-        flat_chain, labels=param_names, truths=truths, plot_datapoints=False
+        converted_chain,
+        labels=[label.replace(".phi", ".phi") for label in param_names],
+        truths=truths,
+        plot_datapoints=False,     # disables individual scatter points
     )
 
-    # Style customization
-    large_font_size = 50
-    medium_font_size = 40
-    label_font_size = 20
-    tick_font_size = 15
-    default_tick_font_size = 12
-    default_font_size = 10
-    label_padding = 40
-    tick_padding = 5
-
     for ax in fig.get_axes():
-        ax.tick_params(axis='both', labelsize=default_tick_font_size)
-        ax.xaxis.label.set_size(label_font_size)
-        ax.yaxis.label.set_size(label_font_size)
-        ax.xaxis.labelpad = label_padding
-        ax.yaxis.labelpad = label_padding
+        ax.tick_params(axis='both', labelsize=12)
+        ax.xaxis.label.set_size(20)
+        ax.yaxis.label.set_size(20)
+        ax.xaxis.labelpad = 40
+        ax.yaxis.labelpad = 40
 
-    plt.tick_params(axis='x', which='both', pad=tick_padding)
-    plt.tick_params(axis='y', which='both', pad=tick_padding)
-
+    plt.tick_params(axis='x', which='both', pad=5)
+    plt.tick_params(axis='y', which='both', pad=5)
     plt.show()
 
+def summarize_posteriors(chain, param_names, system_dict, txt_file_path=None, txt_save_file_path=None, step_range=(0, None)):
+    import instruments_jax as inst
 
-def summarize_posteriors(chain, param_names, burn_in=0):
-    """Print median ± std for each parameter."""
-    flat_chain = chain[burn_in:, :, :].reshape(-1, chain.shape[-1])
+    # Flatten MCMC chain
+    flat_chain = chain[step_range[0]:step_range[1], :, :].reshape(-1, chain.shape[-1])
+
+    # Generate the base system Mueller matrix from a known full system_dict
+    system_mm = inst.generate_system_mueller_matrix(system_dict)
+
+    # If provided, use the .txt param dict to get parameter keys
+    if txt_file_path is not None:
+        with open(txt_file_path, "r") as f:
+            param_dict = json.load(f)
+        _, p_keys = inst.parse_configuration(param_dict)
+    else:
+        raise ValueError("You must supply txt_file_path to extract parameter keys.")
+
+    # Compute medians
+    new_param_values = []
     for i, name in enumerate(param_names):
-        median = np.median(flat_chain[:, i])
-        std = np.std(flat_chain[:, i])
-        print(f"{name}: {median:.5f} ± {std:.5f}")
+        val = flat_chain[:, i] / (2 * np.pi) if ".phi" in name else flat_chain[:, i]
+        median = np.median(val)
+        std = np.std(val)
+        new_param_values.append(median)
+        print(f"{name} ({'waves' if '.phi' in name else ''}): {median:.5f} ± {std:.5f}")
+
+    if txt_save_file_path is not None:
+        updated_mm = inst.update_system_mm(new_param_values, p_keys, system_mm)
+        updated_dict = updated_mm.master_property_dict
+        with open(txt_save_file_path, "w") as f:
+            json.dump(updated_dict, f, indent=4)
 
 def plot_mcmc_fits_double_diff_sum(
     h5_filename,
@@ -122,127 +124,65 @@ def plot_mcmc_fits_double_diff_sum(
     csv_path,
     filter_wavelength,
     system_dict,
-    configuration_filter=None,
     wavelength_str=None,
     n_samples=50,
-    burn_in=0
+    step_range=(0, None),
+    imr_theta_filter=None,
 ):
-    # Load dataset
-    interleaved_values, interleaved_stds, configuration_list = read_csv(
-        csv_path, obs_mode="IPOL", obs_filter=filter_wavelength)
-
+    # Load CSV data
+    interleaved_values, interleaved_stds, configuration_list = inst.read_csv(
+        csv_path, obs_mode="IPOL", obs_filter=filter_wavelength
+    )
     interleaved_stds_proc = process_errors(interleaved_stds, interleaved_values)
     interleaved_values_proc = process_dataset(interleaved_values)
 
-    # Load and parse parameter dictionary
+    # Load initial parameters
     with open(txt_filename, "r") as f:
         p0_dict = json.load(f)
     p0_values, p_keys = parse_configuration(p0_dict)
 
-    # Generate system Mueller matrix
-    system_mm = generate_system_mueller_matrix(system_dict)
-
-    # Load MCMC chain
+    # Load and preprocess MCMC chain
     with h5py.File(h5_filename, "r") as f:
         chain = f["mcmc"]["chain"][:]
-    if chain.shape[0] > chain.shape[1]:  # (nsteps, nwalkers, ndim)
-        chain = np.transpose(chain, (1, 0, 2))  # -> (nwalkers, nsteps, ndim)
+    # Determine shape
+    nsteps, nwalkers, ndim = chain.shape
+    start, end = step_range
+    if end is None:
+        end = nsteps
 
-    flat_chain = chain[:, burn_in:, :].reshape(-1, chain.shape[-1])
+    # Safety check
+    if start >= end or start >= nsteps:
+        raise ValueError(f"Invalid step_range {step_range} for chain with {nsteps} steps.")
+
+    # Slice over steps (axis 0), keep all walkers
+    flat_chain = chain[start:end, :, :].reshape(-1, ndim)
+
+    # Random sample indices
     if len(flat_chain) < n_samples:
-        raise ValueError(f"Only {len(flat_chain)} samples available post burn-in, but {n_samples} requested.")
-
+        raise ValueError(f"Only {len(flat_chain)} samples available, but {n_samples} requested.")
     np.random.seed(42)
     sample_indices = np.random.choice(flat_chain.shape[0], size=n_samples, replace=False)
 
-    # Create model predictions from samples
-    model_outputs = []
-    for idx in sample_indices:
+    # Generate system Mueller matrix
+    system_mm = generate_system_mueller_matrix(system_dict)
+
+    # Plot only the first sample with legend
+    for i, idx in enumerate(sample_indices):
         p_sample = flat_chain[idx]
-        updated_mm = update_system_mm(p_sample, p_keys, system_mm)
-        intensities = []
-
-        for config in configuration_list:
-            values, keywords = parse_configuration(config)
-            updated_mm = update_system_mm(values, keywords, updated_mm)
-
-            updated_mm = update_system_mm(["o"], [["wollaston", "beam"]], updated_mm)
-            o_intensity = generate_measurement(updated_mm)[0]
-
-            updated_mm = update_system_mm(["e"], [["wollaston", "beam"]], updated_mm)
-            e_intensity = generate_measurement(updated_mm)[0]
-
-            intensities.extend([o_intensity, e_intensity])
-
-        model_values = process_model(intensities)
-        model_outputs.append(model_values)
-
-    # Extract double differences and sums from data
-    dd_values = interleaved_values_proc[::2]
-    ds_values = interleaved_values_proc[1::2]
-    dd_stds = interleaved_stds_proc[::2]
-    ds_stds = interleaved_stds_proc[1::2]
-
-    # Group by IMR theta
-    dd_by_theta = {}
-    ds_by_theta = {}
-
-    for i, config in enumerate(configuration_list[::2]):
-        hwp_theta = config["hwp"]["theta"]
-        imr_theta = round(config["image_rotator"]["theta"], 1)
-
-        if configuration_filter is not None and imr_theta != round(configuration_filter, 1):
-            continue
-
-        if imr_theta not in dd_by_theta:
-            dd_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": []}
-            ds_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": []}
-
-        dd_by_theta[imr_theta]["hwp_theta"].append(hwp_theta)
-        dd_by_theta[imr_theta]["values"].append(dd_values[i])
-        dd_by_theta[imr_theta]["stds"].append(dd_stds[i])
-
-        ds_by_theta[imr_theta]["hwp_theta"].append(hwp_theta)
-        ds_by_theta[imr_theta]["values"].append(ds_values[i])
-        ds_by_theta[imr_theta]["stds"].append(ds_stds[i])
-
-    # Plot
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True)
-
-    # Plot data
-    for theta in dd_by_theta:
-        dd = dd_by_theta[theta]
-        ds = ds_by_theta[theta]
-        err_dd = axes[0].errorbar(dd["hwp_theta"], dd["values"], yerr=dd["stds"], fmt='o', label=f"{theta}°")
-        color = err_dd[0].get_color()
-        axes[1].errorbar(ds["hwp_theta"], ds["values"], yerr=ds["stds"], fmt='o', color=color)
-
-    # Plot models
-    for model in model_outputs:
-        dd_model = model[::2]
-        ds_model = model[1::2]
-
-        for theta in dd_by_theta:
-            dd = dd_by_theta[theta]
-            ds = ds_by_theta[theta]
-
-            axes[0].plot(dd["hwp_theta"], dd_model[:len(dd["hwp_theta"])], alpha=0.1)
-            axes[1].plot(ds["hwp_theta"], ds_model[:len(ds["hwp_theta"])], alpha=0.1)
-
-    axes[0].set_xlabel("HWP θ (deg)")
-    axes[0].set_ylabel("Double Difference")
-    axes[0].legend(title="IMR θ")
-
-    axes[1].set_xlabel("HWP θ (deg)")
-    axes[1].set_ylabel("Double Sum")
-    axes[1].legend(title="IMR θ")
-
-    if wavelength_str is not None:
-        fig.suptitle(f"{wavelength_str}", fontsize=14)
-
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-    plt.show()
-
-
-
-
+        model_output = model(
+            p_sample[:-1],
+            p_keys[:-1],
+            system_mm,
+            configuration_list,
+            s_in=np.array([1, 0, 0, 0]),
+            process_model=inst.process_model,
+        )
+        plot_data_and_model(
+            interleaved_values,
+            interleaved_stds,
+            model_output,
+            configuration_list,
+            wavelength=wavelength_str,
+            imr_theta_filter=imr_theta_filter,
+            legend=(i == 0)  # Only show legend on the first one
+        )
