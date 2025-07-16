@@ -21,9 +21,9 @@ import copy
 import os
 from functools import partial
 
-#######################################################
+###############################################################
 ###### Functions related to reading/writing in .csv values ####
-#######################################################
+###############################################################
 
 # function to fix corrupted hwp data
 def fix_hwp_angles(csv_file_path, nderotator=8):
@@ -80,10 +80,11 @@ def parse_array_string(x):
         return np.array(x)  # Already in the correct format
     return np.nan  # If neither, return NaN
 
-#TOD0 ADD L/R FLUXES
+
 def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin):
     """Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
-    single_sum, norm_single_diff, and wavelength values for a wavelength bin from each fits cube in the directory.
+    single sum, single difference, LCOUNTS, RCOUNTS, and wavelength values for a 
+    wavelength bin from each fits cube in the directory.
 
     FITS parameters are extracted from raw files, while single sum and difference are calculated using the
     fits cube data and the defined rectangular apertures.
@@ -124,11 +125,12 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
         raise NotADirectoryError(f"Raw cube directory does not exist: {raw_cube_path}")
     if wavelength_bin > 21:
         raise ValueError(f"This function is currently only compatible with lowres mode, with 22 wavelength bins.")
+    
     # prepare output csv file
 
     output_csv_path = Path(output_csv_path)
     with open(output_csv_path, 'w') as f:
-        f.write("filepath,D_IMRANG,RET-ANG1,single_sum,norm_single_diff,wavelength_bin\n")
+        f.write("filepath,D_IMRANG,RET-ANG1,single_sum,norm_single_diff,LCOUNTS,RCOUNTS,wavelength_bin\n")
 
         # iterate over all fits files in the directory
 
@@ -157,7 +159,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
 
                 # calculate single sum and normalized single difference
 
-                single_sum,norm_single_diff = single_sum_and_diff(fits_file, wavelength_bin)
+                single_sum, norm_single_diff, LCOUNTS, RCOUNTS = single_sum_and_diff(fits_file, wavelength_bin)
 
                 # wavelength bins for lowres mode
 
@@ -168,7 +170,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
                 
                 # write to csv file
 
-                f.write(f"{fits_file},{d_imrang},{ret_ang1},{single_sum},{norm_single_diff},{bins[wavelength_bin]}\n")
+                f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {single_sum}, {norm_single_diff}, {LCOUNTS}, {RCOUNTS}, {bins[wavelength_bin]}\n")
             except Exception as e:
                 print(f"Error processing {fits_file}: {e}")
     print(f"CSV file written to {output_csv_path}")
@@ -749,7 +751,7 @@ def process_errors(input_errors, input_dataset):
 # function for calculating single sum and difference
 def single_sum_and_diff(fits_cube_path, wavelength_bin):
     """Calculate normalized single difference and sum between left and right beam 
-    rectangular aperture photometry from a CHARIS fits cube.
+    rectangular aperture photometry from a CHARIS fits cube. Add L/R counts to array.
     
     Parameters:
     -----------
@@ -769,6 +771,10 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
             [1] norm_single_diff : float
                 Normalized single difference of left and right beam apertures:
                 (R - L) / (R + L)
+            [2] left_counts : float
+                Left beam aperture counts.
+            [3] right_counts : float
+                Right beam aperture counts.
     """
     
     # check if fits_cube_path is a valid file path
@@ -811,11 +817,16 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
     phot_rbeam = aperture_photometry(image_data, aperture_rbeam)
 
     # calculate normalized single difference and sum
+
     single_sum = phot_rbeam['aperture_sum'][0] + phot_lbeam['aperture_sum'][0]
     norm_single_diff = (phot_rbeam['aperture_sum'][0] - phot_lbeam['aperture_sum'][0]) / single_sum
-    return np.array([single_sum, norm_single_diff])
+
+    # get left and right counts
+
+    left_counts = phot_lbeam['aperture_sum'][0]
+    right_counts = phot_rbeam['aperture_sum'][0]
+    return (single_sum, norm_single_diff, left_counts, right_counts)
     
-#T0DO fix plotting connecting
 def plot_single_differences(csv_file_path, plot_save_path=None):
     """Plot norm single differences as a function of the HWP angle for one 
     wavelength bin from a CSV containing headers "D_IMRANG" , "RET-ANG1" , 
@@ -869,7 +880,13 @@ def plot_single_differences(csv_file_path, plot_save_path=None):
     
     for derotator_angle in np.unique(derotator_angles):
         mask = derotator_angles == derotator_angle
-        ax.plot(hwp_angles[mask], single_diffs[mask], marker='o', label=f'{derotator_angle}°')
+        # get the data for this derotator angle
+        hwp_subset = hwp_angles[mask]
+        diffs_subset = single_diffs[mask]
+        # sort by HWP angle
+        sort_order = np.argsort(hwp_subset)
+        ax.plot(hwp_subset[sort_order], diffs_subset[sort_order], 
+            marker='o', label=f'{derotator_angle}°')
     ax.set_xlabel('HWP Angle (degrees)')
     ax.set_ylabel('Normalized Single Difference')
     ax.set_title(f'Single Differences vs HWP Angle at {wavelength_bin} nm')
@@ -944,7 +961,6 @@ def quick_data_all_bins(cube_directory_path, raw_directory_path, csv_directory, 
 
         plot_save_path = Path(plot_directory) / f'diffvshwp_bin{bin}.png'
         plot_single_differences(csv_file_path, plot_save_path)
-
 
 def plot_data_and_model(interleaved_values, interleaved_stds, model, 
     configuration_list, imr_theta_filter=None, wavelength=None, save_path = None):
@@ -1054,3 +1070,89 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
 
     plt.show()
 
+def plot_fluxes(csv_path, plot_save_path=None):
+    """Plot left and right beam fluxes as a function of the HWP angle for one 
+    wavelength bin and derotator angle from a CSV containing headers "LCOUNTS", 
+    "RCOUNTS", "RET-ANG1", "D_IMRANG" and "wavelength_bin".
+    This can be obtained from the write_fits_info_to_csv function.
+
+    Parameters:
+    -----------
+    csv_path : str or Path
+        Path to the specified CSV file.
+
+    plot_save_path : str or Path, optional
+        If provided, the plot will be saved to this path. Must end with '.png'.
+
+    Returns: 
+    --------
+    None
+    """
+    
+    # check if csv_path is a valid file path
+
+    csv_path = Path(csv_path)
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"File not found: {csv_path}")
+    
+    # read csv file into pandas dataframe
+
+    df = pd.read_csv(csv_path)
+
+    # check if necessary columns are present
+
+    required_columns = ['LCOUNTS', 'RCOUNTS', 'RET-ANG1', 'wavelength_bin', 'D_IMRANG']
+    for col in required_columns:
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' is missing from the CSV file.")
+        
+    # check for multiple wavelength bins
+    unique_bins = df['wavelength_bin'].unique()
+    if len(unique_bins) > 1:
+        raise ValueError("CSV file contains multiple wavelength bins. Please filter to a single bin before plotting.")
+    
+    # extract data for plotting
+
+    hwp_angles = df['RET-ANG1'].values
+    left_counts = df['LCOUNTS'].values
+    right_counts = df['RCOUNTS'].values
+    derotator_angles = df['D_IMRANG'].values
+    wavelength_bin = df['wavelength_bin'].values[0]
+
+# plot counts as a function of HWP angle for each derotator angle
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    cmap = plt.get_cmap('tab10')
+    unique_angles = np.unique(derotator_angles)
+    colors = [
+    cmap(i / max(len(unique_angles) - 1, 1))
+    for i in range(len(unique_angles))
+]
+    for idx, derotator_angle in enumerate(unique_angles):
+        mask = derotator_angles == derotator_angle
+        color = colors[idx]  # use a different color for each derotator angle
+        sort_order = np.argsort(hwp_angles[mask])
+        ax.plot(hwp_angles[mask][sort_order], left_counts[mask][sort_order], marker='o', label=f'{derotator_angle}° (L)', color=color)
+        ax.plot(hwp_angles[mask][sort_order], right_counts[mask][sort_order], marker='x', linestyle='--', label=f'{derotator_angle}° (R)', color=color)
+    ax.set_xlabel('HWP Angle (degrees)')
+    ax.set_ylabel('Counts')
+    ax.set_title(f'L/R Counts vs HWP Angle at {wavelength_bin} nm')
+    ax.legend(loc='lower right', fontsize='small', title= r'IMR $\theta$')
+  
+
+
+    ax.grid()
+    plt.show()
+
+    # save plot if a path is provided
+
+    if plot_save_path:
+        plot_save_path = Path(plot_save_path)
+        if not plot_save_path.parent.is_dir():
+            raise NotADirectoryError(f"Directory does not exist: {plot_save_path.parent}")
+        if not plot_save_path.suffix == '.png':
+            raise ValueError("Plot save path must end with '.png'.")
+        fig.savefig(plot_save_path)
+        print(f"Plot saved to {plot_save_path}")
+
+    
