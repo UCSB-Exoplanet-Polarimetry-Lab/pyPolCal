@@ -3,6 +3,8 @@ import pandas as pd
 import cmath
 import matplotlib.pyplot as plt
 
+# all functions adapted from Joost 't Hart 2021
+
 #####################################
 ### Retrieving refraction indeces ###
 #####################################
@@ -117,14 +119,14 @@ def return_n(wavelength, material):
         wavelength) ** 2) + 2.4904862 / (1 - (23.771995 / wavelength) ** 2)) ** .5
     return n
 
-def HWP_retardance(wavelengths, w_SiO2, w_MgF2):
+def HWP_retardance(wavelengths, w_SiO2=1.623, w_MgF2=1.268):
     '''
     Returns the HWP retardance based on eq. 23 from Joost 't Hart 2021
 
     Args:
         wavelengths: (float list) list of wavelengths (nm)
-        w_SiO2: (float) width of SiO2 layer (mm)
-        w_MgF2: (float) width of MgF2 layer (mm)
+        w_SiO2: (float) width of SiO2 layer (mm), default is 1.623 mm from Joost 't Hart 2021
+        w_MgF2: (float) width of MgF2 layer (mm), default is 1.268 mm from Joost 't Hart 2021
 
     Returns:
         retardance_list: (float list) list of all corresponding retardances (rad)
