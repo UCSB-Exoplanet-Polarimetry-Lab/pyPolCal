@@ -151,8 +151,6 @@ def HWP_retardance(wavelengths, w_SiO2=1.623, w_MgF2=1.268):
 
     retardance_list = np.array(retardance_list)
     
-    # Converting from radians to waves
-    retardance_list = retardance_list / (2 * np.pi)
 
     return retardance_list
 
@@ -264,9 +262,7 @@ def IMR_retardance(wavelengths, d=262.56):
     # print("r_s_tot: " + str(r_s_tot))
     # print("r_p_tot: " + str(r_p_tot))
 
-    # Converting from radians to waves
 
     retardance_list = np.array(retardance_list)
-    retardance_list = retardance_list / (2 * np.pi)
 
     return retardance_list
