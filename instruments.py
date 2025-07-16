@@ -80,7 +80,7 @@ def parse_array_string(x):
         return np.array(x)  # Already in the correct format
     return np.nan  # If neither, return NaN
 
-
+#TOD0 ADD L/R FLUXES
 def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin):
     """Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
     single_sum, norm_single_diff, and wavelength values for a wavelength bin from each fits cube in the directory.
@@ -815,7 +815,7 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
     norm_single_diff = (phot_rbeam['aperture_sum'][0] - phot_lbeam['aperture_sum'][0]) / single_sum
     return np.array([single_sum, norm_single_diff])
     
-
+#T0DO fix plotting connecting
 def plot_single_differences(csv_file_path, plot_save_path=None):
     """Plot norm single differences as a function of the HWP angle for one 
     wavelength bin from a CSV containing headers "D_IMRANG" , "RET-ANG1" , 
