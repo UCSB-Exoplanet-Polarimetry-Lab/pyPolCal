@@ -25,6 +25,93 @@ from functools import partial
 ###### Functions related to reading/writing in .csv values ####
 ###############################################################
 
+def single_sum_and_diff(fits_cube_path, wavelength_bin):
+    """Calculate normalized single difference and sum between left and right beam 
+    rectangular aperture photometry from a CHARIS fits cube. Add L/R counts and stds to array.
+    
+    Parameters:
+    -----------
+    fits_cube_path : str or Path
+        Path to the CHARIS fits cube file.
+        
+    wavelength_bin : int
+        Index of the wavelength bin to analyze (0-based).
+    
+    Returns:
+    --------
+    np.ndarray
+        Array with six elements:
+            [0] single_sum : float
+                Single sum of left and right beam apertures:
+                (R + L)
+            [1] norm_single_diff : float
+                Normalized single difference of left and right beam apertures:
+                (R - L) / (R + L)
+            [2] left_counts : float
+                Left beam aperture counts.
+            [3] right_counts : float
+                Right beam aperture counts.
+            [4] sum_std : float
+                Standard deviation of the single sum.
+            [5] diff_std : float
+                Standard deviation of the normalized single difference.
+    """
+    
+    # check if fits_cube_path is a valid file path
+
+    fits_cube_path = Path(fits_cube_path)
+    if not fits_cube_path.is_file():
+        raise FileNotFoundError(f"File not found: {fits_cube_path}")
+    
+    # retrieve fits cube data
+
+    hdul = fits.open(fits_cube_path)
+    cube_data = hdul[1].data
+
+    # check if data is a 3d cube (wavelength, x, y)
+
+    if cube_data.ndim != 3:
+        raise ValueError("Input data must be a 3D cube (wavelength, x, y).")
+        
+    # check if wavelength_bin is within bounds
+
+    if not (0 <= wavelength_bin < cube_data.shape[0]):
+        raise ValueError(f"wavelength_bin must be between 0 and {cube_data.shape[0] - 1}.")
+    
+    image_data = cube_data[wavelength_bin]
+
+    # define rectangular apertures for left and right beams
+    # note- these values are based on rough analysis and may need adjustment for high precision
+
+    centroid_lbeam = [71.75, 86.25] 
+    centroid_rbeam = [131.5, 116.25]
+    aperture_width = 44.47634202584561
+    aperture_height = 112.3750880855165
+    theta = 0.46326596610192305
+
+    # define apertures perform aperture photometry 
+
+    aperture_lbeam = RectangularAperture(centroid_lbeam, aperture_width, aperture_height, theta=theta)
+    aperture_rbeam = RectangularAperture(centroid_rbeam, aperture_width, aperture_height, theta=theta)
+    phot_lbeam = aperture_photometry(image_data, aperture_lbeam)
+    phot_rbeam = aperture_photometry(image_data, aperture_rbeam)
+
+    # calculate normalized single difference and sum
+
+    single_sum = phot_rbeam['aperture_sum'][0] + phot_lbeam['aperture_sum'][0]
+    norm_single_diff = (phot_rbeam['aperture_sum'][0] - phot_lbeam['aperture_sum'][0]) / single_sum
+
+    # get left and right counts
+
+    left_counts = phot_lbeam['aperture_sum'][0]
+    right_counts = phot_rbeam['aperture_sum'][0]
+
+    # calculate standard deviations of single sum and normalized single difference
+
+    sum_std = np.sqrt(single_sum) # Assuming Poisson noise for counts
+    diff_std = np.sqrt((4*(left_counts**2)*right_counts + 4*(right_counts**2)*left_counts) / (single_sum**4)) # error propagation for normalized difference
+    return (single_sum, norm_single_diff, left_counts, right_counts, sum_std, diff_std)
+
 # function to fix corrupted hwp data
 def fix_hwp_angles(csv_file_path, nderotator=8):
     '''Take corrupted HWP angles and replace them with assumed values
@@ -83,8 +170,8 @@ def parse_array_string(x):
 
 def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin):
     """Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
-    single sum, single difference, LCOUNTS, RCOUNTS, and wavelength values for a 
-    wavelength bin from each fits cube in the directory.
+    single sum, single difference, LCOUNTS, RCOUNTS, difference std,
+    sum std, and wavelength values for a wavelength bin from each fits cube in the directory.
 
     FITS parameters are extracted from raw files, while single sum and difference are calculated using the
     fits cube data and the defined rectangular apertures.
@@ -130,7 +217,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
 
     output_csv_path = Path(output_csv_path)
     with open(output_csv_path, 'w') as f:
-        f.write("filepath,D_IMRANG,RET-ANG1,single_sum,norm_single_diff,LCOUNTS,RCOUNTS,wavelength_bin\n")
+        f.write("filepath,D_IMRANG,RET-ANG1,single_sum,norm_single_diff,LCOUNTS,RCOUNTS,sum_std,diff_std,wavelength_bin\n")
 
         # iterate over all fits files in the directory
 
@@ -159,7 +246,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
 
                 # calculate single sum and normalized single difference
 
-                single_sum, norm_single_diff, LCOUNTS, RCOUNTS = single_sum_and_diff(fits_file, wavelength_bin)
+                single_sum, norm_single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff(fits_file, wavelength_bin)
 
                 # wavelength bins for lowres mode
 
@@ -170,7 +257,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
                 
                 # write to csv file
 
-                f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {single_sum}, {norm_single_diff}, {LCOUNTS}, {RCOUNTS}, {bins[wavelength_bin]}\n")
+                f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {single_sum}, {norm_single_diff}, {LCOUNTS}, {RCOUNTS}, {sum_std}, {diff_std}, {bins[wavelength_bin]}\n")
             except Exception as e:
                 print(f"Error processing {fits_file}: {e}")
     print(f"CSV file written to {output_csv_path}")
@@ -817,83 +904,7 @@ def process_errors(input_errors, input_dataset):
 #######################################################
 
 # function for calculating single sum and difference
-def single_sum_and_diff(fits_cube_path, wavelength_bin):
-    """Calculate normalized single difference and sum between left and right beam 
-    rectangular aperture photometry from a CHARIS fits cube. Add L/R counts to array.
-    
-    Parameters:
-    -----------
-    fits_cube_path : str or Path
-        Path to the CHARIS fits cube file.
-        
-    wavelength_bin : int
-        Index of the wavelength bin to analyze (0-based).
-    
-    Returns:
-    --------
-    np.ndarray
-        Array with two elements:
-            [0] single_sum : float
-                Single sum of left and right beam apertures:
-                (R + L)
-            [1] norm_single_diff : float
-                Normalized single difference of left and right beam apertures:
-                (R - L) / (R + L)
-            [2] left_counts : float
-                Left beam aperture counts.
-            [3] right_counts : float
-                Right beam aperture counts.
-    """
-    
-    # check if fits_cube_path is a valid file path
 
-    fits_cube_path = Path(fits_cube_path)
-    if not fits_cube_path.is_file():
-        raise FileNotFoundError(f"File not found: {fits_cube_path}")
-    
-    # retrieve fits cube data
-
-    hdul = fits.open(fits_cube_path)
-    cube_data = hdul[1].data
-
-    # check if data is a 3d cube (wavelength, x, y)
-
-    if cube_data.ndim != 3:
-        raise ValueError("Input data must be a 3D cube (wavelength, x, y).")
-        
-    # check if wavelength_bin is within bounds
-
-    if not (0 <= wavelength_bin < cube_data.shape[0]):
-        raise ValueError(f"wavelength_bin must be between 0 and {cube_data.shape[0] - 1}.")
-    
-    image_data = cube_data[wavelength_bin]
-
-    # define rectangular apertures for left and right beams
-    # note- these values are based on rough analysis and may need adjustment for high precision
-
-    centroid_lbeam = [71.75, 86.25] 
-    centroid_rbeam = [131.5, 116.25]
-    aperture_width = 44.47634202584561
-    aperture_height = 112.3750880855165
-    theta = 0.46326596610192305
-
-    # define apertures perform aperture photometry 
-
-    aperture_lbeam = RectangularAperture(centroid_lbeam, aperture_width, aperture_height, theta=theta)
-    aperture_rbeam = RectangularAperture(centroid_rbeam, aperture_width, aperture_height, theta=theta)
-    phot_lbeam = aperture_photometry(image_data, aperture_lbeam)
-    phot_rbeam = aperture_photometry(image_data, aperture_rbeam)
-
-    # calculate normalized single difference and sum
-
-    single_sum = phot_rbeam['aperture_sum'][0] + phot_lbeam['aperture_sum'][0]
-    norm_single_diff = (phot_rbeam['aperture_sum'][0] - phot_lbeam['aperture_sum'][0]) / single_sum
-
-    # get left and right counts
-
-    left_counts = phot_lbeam['aperture_sum'][0]
-    right_counts = phot_rbeam['aperture_sum'][0]
-    return (single_sum, norm_single_diff, left_counts, right_counts)
     
 def plot_single_differences(csv_file_path, plot_save_path=None):
     """Plot norm single differences as a function of the HWP angle for one 
@@ -1031,7 +1042,7 @@ def quick_data_all_bins(cube_directory_path, raw_directory_path, csv_directory, 
         plot_single_differences(csv_file_path, plot_save_path)
 
 def plot_data_and_model(interleaved_values, interleaved_stds, model, 
-    configuration_list, imr_theta_filter=None, wavelength=None, save_path = None):
+    configuration_list, imr_theta_filter=None, wavelength=None, save_path = None, mode = 'VAMPIRES'):
     """
     Plots double difference and double sum measurements alongside model predictions,
     grouped by image rotator angle (D_IMRANG). Optionally filters by a specific 
@@ -1067,9 +1078,11 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         Displays two subplots: one for double differences and one for double sums,
         including error bars and model curves.
     """
-    # Calculate double differences and sums from interleaved single differences
-    interleaved_stds = process_errors(interleaved_stds, interleaved_values)
-    interleaved_values = process_dataset(interleaved_values)
+    # Calculate double differences and sums from interleaved single differences if in VAMPIRES mode 
+    if mode =='VAMPIRES':
+        interleaved_stds = process_errors(interleaved_stds, interleaved_values)
+        interleaved_values = process_dataset(interleaved_values)
+    
 
     # Extract double differences and double sums
     dd_values = interleaved_values[::2]
@@ -1105,27 +1118,40 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         ds_by_theta[imr_theta]["model"].append(ds_model[i])
 
     # Create the plots
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True)
+    if mode == 'VAMPIRES':
+        num_plots = 2
+    elif mode == 'CHARIS':
+        num_plots = 1
+    fig, axes = plt.subplots(1, num_plots, figsize=(14, 6), sharex=True)
 
     # Double Difference plot
-    ax = axes[0]
-    for theta, d in dd_by_theta.items():
-        err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
-        color = err[0].get_color()
-        ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-    ax.set_xlabel("HWP θ (deg)")
-    ax.set_ylabel("Double Difference")
-    ax.legend(title="IMR θ")
-
+    if mode == 'VAMPIRES':
+        ax = axes[0]
+        for theta, d in dd_by_theta.items():
+           err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
+           color = err[0].get_color()
+           ax.plot(d["hwp_theta"], d["model"], '-', color=color)
+        ax.set_xlabel("HWP θ (deg)")
+        ax.set_ylabel("Double Difference")
+        ax.legend(title="IMR θ")
     # Double Sum plot
-    ax = axes[1]
-    for theta, d in ds_by_theta.items():
-        err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
-        color = err[0].get_color()
-        ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-    ax.set_xlabel("HWP θ (deg)")
-    ax.set_ylabel("Double Sum")
-    ax.legend(title="IMR θ")
+        ax = axes[1]
+        for theta, d in ds_by_theta.items():
+            err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
+            color = err[0].get_color()
+            ax.plot(d["hwp_theta"], d["model"], '-', color=color)
+        ax.set_xlabel("HWP θ (deg)")
+        ax.set_ylabel("Double Sum")
+        ax.legend(title="IMR θ")
+    elif mode == 'CHARIS':
+        ax = axes
+        for theta, d in dd_by_theta.items():
+           err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
+           color = err[0].get_color()
+           ax.plot(d["hwp_theta"], d["model"], '-', color=color)
+        ax.set_xlabel("HWP θ (deg)")
+        ax.set_ylabel("Single Difference")
+        ax.legend(title="IMR θ")
 
     # Set a suptitle if wavelength is provided
     if wavelength is not None:
