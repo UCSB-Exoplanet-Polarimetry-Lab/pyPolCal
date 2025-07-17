@@ -504,6 +504,42 @@ def update_p0(p0, result):
 
 def model(p, system_parameters, system_mm, configuration_list, s_in=None, 
         process_model = None):
+    """Returns simulated L/R intensities for a given set of parameters based on
+    parameter values, a dictionary detailing those values based on pyMuellerMat, 
+    a pyMuellerMat system Mueller matrix, and a list of configurations for the 
+    system Mueller matrix.
+
+    Parameters
+    ----------
+    p : list of float
+        List of parameter values. One list of values per parameter.
+    
+    system_parameters : list of [str, str]
+        List of ['component_name', 'parameter_name'] pairs corresponding to `p`.
+        For example, [['Polarizer', 'Theta'], ['Polarizer', 'Phi']] if your p
+        is two lists of parameters Theta and Phi for a Polarizer component.
+
+    system_mm : pyMuellerMat system Mueller matrix object
+        Mueller matrix model of the optical system. Any parameters
+        that are specified in p and system_parameters will be replaced.
+
+    configuration_list : list of dict
+        Each dict will update parameters of your current system_mm 
+        to generate measurements. For example, if you want 9 HWP angles
+        and one derotator angle, each config dict will have this form:
+        {"hwp": {"theta": hwp_angle},
+        "image_rotator": {"theta": 45.0}
+        Append each unique configuration to your configuration_list.
+
+    s_in : np.ndarray, optional
+        Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
+
+    process_model : callable, optional
+        Converts output intensities to double differences. CURRENTLY NOT
+        COMPATIBLE WITH SINGLE DIFFERENCES. 
+
+    """
+    
     # Default s_in if not provided
     if s_in is None:
         s_in = np.array([1, 0, 0, 0])
@@ -621,16 +657,18 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     else: 
         return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
 
-def build_differences_and_sums(intensities):
+def build_differences_and_sums(intensities, normalized=False):
     '''
     Assume that the input intensities are organized in pairs. Such that
     '''
     # Making sure that intensities is a numpy array
     intensities = np.array(intensities)
 
-    differences = intensities[::2]-intensities[1::2]
+    differences = (intensities[::2]-intensities[1::2])
     sums = intensities[::2]+intensities[1::2]
-
+    if normalized==True:
+        # Normalize the differences and sums
+       differences = differences / sums
     return differences, sums
 
 def build_double_differences_and_sums(differences, sums):
@@ -646,14 +684,35 @@ def build_double_differences_and_sums(differences, sums):
 
     return double_differences, double_sums
 
-def process_model(model_intensities):
+def process_model(model_intensities, mode= 'VAMPIRES'):
+    """
+    Processes the model intensities to compute differences and sums,
+    and formats them into a single interleaved array. 
+    
+    Parameters
+    ----------
+    model_intensities : list or np.ndarray
+        List or array of model intensities, expected to be in pairs.
+    mode : str, optional
+        Mode of processing, either 'VAMPIRES' or 'CHARIS'. 
+        Default is 'VAMPIRES'. VAMPIRES returns double differences
+        and CHARIS returns single differences."""
+    
+    # Making sure the mode exists
+    if mode not in ['VAMPIRES', 'CHARIS']:
+        raise ValueError("Mode must be either 'VAMPIRES' or 'CHARIS'.")
+    
     # Making sure that model_intensities is a numpy array
+
     model_intensities = np.array(model_intensities)
+
     # print("Entered process_model")
 
-    differences, sums = build_differences_and_sums(model_intensities)
+    
 
-    double_differences, double_sums = build_double_differences_and_sums(differences, sums)
+    if mode == 'VAMPRIES':
+        differences, sums = build_differences_and_sums(model_intensities)
+        double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
     # print("Differences shape: ", np.shape(differences))
     # print("Sums shape: ", np.shape(sums))
@@ -661,10 +720,19 @@ def process_model(model_intensities):
     # print("Double Sums shape: ", np.shape(double_sums))
 
     #Format this into one array. 
-    interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+    if mode == 'VAMPIRES':
+        # Interleave the double differences and double sums
+        interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+         
+        # NOTE: Subtracting same FLC state orders (A - B) as Miles
     
-    # Take the negative of this as was done before 
-    # NOTE: Subtracting same FLC state orders (A - B) as Miles
+    
+    if mode == 'CHARIS':
+        # Interleave the norm single differences and single sums
+        differences, sums = build_differences_and_sums(model_intensities, normalized=True)
+        interleaved_values = np.ravel(np.column_stack((differences, sums)))
+
+    # Take the negative of this as was done before
     interleaved_values = -interleaved_values
 
     return interleaved_values
