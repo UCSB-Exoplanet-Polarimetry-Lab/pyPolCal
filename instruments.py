@@ -20,6 +20,7 @@ from multiprocessing import Pool
 import copy
 import os
 from functools import partial
+from CHARIS.physical_models import HWP_retardance, IMR_retardance
 
 ###############################################################
 ###### Functions related to reading/writing in .csv values ####
@@ -525,7 +526,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
     result = minimize(logl, p0_values, 
         args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
             s_in, logl_function, process_dataset, process_errors, process_model), 
-            method='Nelder-Mead', bounds = bounds)
+            method='L-BFGS-B', bounds = bounds)
     
     # Saving the final result's logl value
     logl_value = logl(result.x, p0_keywords, system_mm, dataset, errors, 
@@ -667,6 +668,86 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
 
     return output_intensities
 
+
+def generate_CHARIS_mueller_matrix(wavelength_bin, hwp_angle, imr_angle, beam, dict=False):
+    """ 
+    Generate a pyMuellerMuellerMat matrix object for CHARIS based on the given
+    wavelength bin, HWP angle, and derotator angle. Currently only works for lowres mode. 
+    Based on Joost 't Hart 2021
+
+    Parameters:
+    -----------
+    wavelength_bin : int
+        The index of the wavelength bin, zero based. (0 to 21 for 22 bins)
+    hwp_angle : float
+        The rotation angle of the half-wave plate in degrees.
+    imr_angle : float
+        The angle of the image rotator in degrees.
+    beam : str
+        The beam type, either 'o' for ordinary or 'e' for extraordinary.
+    dict : bool, optional
+        If True, returns a system dictionary instead of a Mueller matrix object. Default is False.
+    Returns:
+    --------
+    sys_mm : pyMuellerMat.MuellerMatrix
+        A Mueller matrix object representing the CHARIS system.
+    """
+    # check that it is in lowres mode
+
+    if wavelength_bin < 0 or wavelength_bin > 21:
+        raise ValueError("Wavelength bin must be between 0 and 21 for lowres mode.")
+    
+    # constants based on Joost 't Hart 2021
+
+    offset_imr = -0.0118 # derotator offset
+    offset_hwp = -0.002 # HWP offset
+    offset_cal = -0.035 # calibration polarizer offset
+    wavelength_bins = np.array([1159.5614, 1199.6971, 1241.2219, 1284.184 , 1328.6331, 1374.6208,
+                1422.2002, 1471.4264, 1522.3565, 1575.0495, 1629.5663, 1685.9701,
+                1744.3261, 1804.7021, 1867.1678, 1931.7956, 1998.6603, 2067.8395,
+                2139.4131, 2213.4641, 2290.0781, 2369.3441])
+    theta_imr = imr_angle
+    theta_hwp = hwp_angle
+    theta_cal = 0  # calibration polarizer angle
+    hwp_retardances = HWP_retardance(wavelength_bins) # based on physical model
+    imr_retardances = IMR_retardance(wavelength_bins) # based on physical model
+
+    # create the system dictionary
+
+    sys_dict = {
+        "components" : {
+            "wollaston" : {
+            "type" : "wollaston_prism_function",
+            "properties" : {"beam": beam},
+            "tag": "internal",
+            },
+            "image_rotator" : {
+                "type" : "general_retarder_function",
+                "properties" : {"phi": imr_retardances[wavelength_bin], "theta": theta_imr + offset_imr},
+                "tag": "internal",
+            },
+            "hwp" : {
+                "type" : "general_retarder_function",
+                "properties" : {"phi": hwp_retardances[wavelength_bin], "theta": theta_hwp + offset_hwp},
+                "tag": "internal",
+            },
+            "lp" : {
+                "type": "general_linear_polarizer_function_with_theta",
+                "properties": {"theta": offset_cal + theta_cal},
+                "tag": "internal",
+            }}
+    }
+
+    # generate Mueller matrix object
+
+    system_mm = generate_system_mueller_matrix(sys_dict)
+
+    if dict:
+        return sys_dict
+    else:
+        return system_mm
+
+# note - edited to only use single differences
 def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
          s_in=None, logl_function=None, process_dataset=None, process_errors=None, 
          process_model=None):
@@ -717,8 +798,9 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
         s_in=s_in, process_model=process_model)
 
     # Convert lists to numpy arrays
-    dataset = np.array(dataset)
-    errors = np.array(errors)
+    dataset = np.array(dataset)[::2]
+    errors = np.array(errors)[::2]
+    output_intensities= output_intensities[::2]
 
     # print("Output Intensities: ", np.shape(output_intensities))
 
@@ -726,6 +808,8 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     # print("Pre process_dataset dataset shape: ", np.shape(dataset))
     if process_dataset is not None:
         processed_dataset = process_dataset(copy.deepcopy(dataset))
+    elif process_dataset is None:
+        processed_dataset = copy.deepcopy(dataset)
     # print("Post process_dataset dataset shape: ", np.shape(processed_dataset))
 
     # Optionally parse the dataset and output intensities (e.g., normalized difference)
@@ -733,11 +817,13 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     if process_errors is not None:
         processed_errors = process_errors(copy.deepcopy(errors), 
             copy.deepcopy(dataset))
+    elif process_errors is None:
+        processed_errors = copy.deepcopy(errors)
     # print("Post process_errors errors shape: ", np.shape(processed_errors))
 
     dataset = copy.deepcopy(processed_dataset)
     errors = copy.deepcopy(processed_errors)
-
+    errors = np.maximum(errors, 1e-3)
     # Calculate log likelihood
     if logl_function is not None:
         return logl_function(p, output_intensities, dataset, errors)
@@ -797,7 +883,7 @@ def process_model(model_intensities, mode= 'VAMPIRES'):
 
     
 
-    if mode == 'VAMPRIES':
+    if mode == 'VAMPIRES':
         differences, sums = build_differences_and_sums(model_intensities)
         double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
@@ -835,7 +921,7 @@ def process_dataset(input_dataset):
     sums = input_dataset[1::2]
 
     # print("Differences: ", differences)
-    # print("Sums shape: ", np.shape(sums))
+    # print("Sums shape: ", np.shape(sums))e
 
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
@@ -1095,8 +1181,11 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     # Group by image_rotator theta
     dd_by_theta = {}
     ds_by_theta = {}
-
-    for i, config in enumerate(configuration_list[::2]):
+    if mode ==  'VAMPIRES':
+        index = 2
+    if mode == 'CHARIS':
+        index = None
+    for i, config in enumerate(configuration_list[::index]):
         hwp_theta = config["hwp"]["theta"]
         imr_theta = round(config["image_rotator"]["theta"], 1)
 
