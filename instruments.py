@@ -21,11 +21,17 @@ import copy
 import os
 from functools import partial
 from CHARIS.physical_models import HWP_retardance, IMR_retardance
+import json
 
 ###############################################################
 ###### Functions related to reading/writing in .csv values ####
 ###############################################################
 
+# define CHARIS wavelength bins
+wavelength_bins = np.array([1159.5614, 1199.6971, 1241.2219, 1284.184 , 1328.6331, 1374.6208,
+1422.2002, 1471.4264, 1522.3565, 1575.0495, 1629.5663, 1685.9701,
+1744.3261, 1804.7021, 1867.1678, 1931.7956, 1998.6603, 2067.8395,
+2139.4131, 2213.4641, 2290.0781, 2369.3441])
 def single_sum_and_diff(fits_cube_path, wavelength_bin):
     """Calculate normalized single difference and sum between left and right beam 
     rectangular aperture photometry from a CHARIS fits cube. Add L/R counts and stds to array.
@@ -251,10 +257,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
 
                 # wavelength bins for lowres mode
 
-                bins = np.array([1159.5614, 1199.6971, 1241.2219, 1284.184 , 1328.6331, 1374.6208,
-                1422.2002, 1471.4264, 1522.3565, 1575.0495, 1629.5663, 1685.9701,
-                1744.3261, 1804.7021, 1867.1678, 1931.7956, 1998.6603, 2067.8395,
-                2139.4131, 2213.4641, 2290.0781, 2369.3441])
+                bins = wavelength_bins
                 
                 # write to csv file
 
@@ -1042,6 +1045,167 @@ def process_errors(input_errors, input_dataset):
     # print("Final interleaved Errors shape: ", np.shape(interleaved_errors))
 
     return interleaved_errors
+
+
+# streamline process for all wavelength bins
+
+def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_system_dict_path,plot_path=None):
+    """
+    Fits a Mueller matrix for one wavelength bin from internal calibration data and saves
+    the updated system dictionary to a JSON file. Creates a plot
+    of each updated model vs the data. Initial guesses for all fits are from Joost t Hart 2021.
+    Note that following the most recent model update these guesses should be updated.
+    The csv containing the calibration data and relevant headers can be obtained by 
+    the write_fits_info_to_csv function in instruments.py. This code currently fits for
+    derotator retardance/offset, HWP retardance/offset, and calibration polarizer offset.
+    It can be modified relatively easily to fit for other parameters as well. 
+
+    Parameters
+    ----------
+    csv_path : str or Path
+        Path to the CSV file containing the calibration data. Must contain the columns "D_IMRANG", 
+    "RET-ANG1", "single_sum", "norm_single_diff", "diff_std", and "sum_std".
+
+    wavelength_bin : int
+        The index of the wavelength bin to fit (0-21 for CHARIS).
+
+    new_system_dict_path : str or Path
+        Path to save the new system dictionary as a JSON file.
+
+    plot_path : str or Path, optional
+        Path to save the plot of the observed vs modeled data. If not provided, no plot will be saved.
+        Must have a .png extension.
+    
+    Returns
+    -------
+    None
+        The function saves the updated system dictionary to a JSON file and optionally saves a plot of the observed vs modeled data.
+    """
+    # Check file paths
+    filepath = Path(csv_path)
+    if not filepath.exists() or filepath.suffix != ".csv":
+        raise ValueError("Please provide a valid .csv file.")
+    plot_path = Path(plot_path)
+    if plot_path.suffix != ".png":
+        raise ValueError("Please provide a valid .png file for plotting.")
+    if new_system_dict_path.suffix != ".json":
+        raise ValueError("Please provide a valid .json file for saving the new system dictionary.")
+    new_system_dict_path = Path(new_system_dict_path)
+    # Read in data
+
+    interleaved_values, interleaved_stds, configuration_list = read_csv(filepath)
+
+    # Loading in past fits from Joost t Hart 2021
+
+    offset_imr = -0.0118 # derotator offset
+    offset_hwp = -0.002 # HWP offset
+    offset_cal = -0.035 # calibration polarizer offset
+    imr_theta = 0 # placeholder 
+    hwp_theta = 0 # also placeholder
+    imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
+    hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
+
+    # Define instrument configuration as system dictionary
+    # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
+
+    system_dict = {
+            "components" : {
+                "wollaston" : {
+                "type" : "wollaston_prism_function",
+                "properties" : {"beam": 'o'}, 
+                "tag": "internal",
+                },
+                "image_rotator" : {
+                    "type" : "general_retarder_function",
+                    "properties" : {"phi": 0, "theta": imr_theta, "delta_theta": offset_imr},
+                    "tag": "internal",
+                },
+                "hwp" : {
+                    "type" : "general_retarder_function",
+                    "properties" : {"phi": 0, "theta": hwp_theta, "delta_theta": offset_hwp},
+                    "tag": "internal",
+                },
+                "lp" : {  # calibration polarizer for internal calibration source
+                    "type": "general_linear_polarizer_function_with_theta",
+                    "properties": {"delta_theta": offset_cal },
+                    "tag": "internal",
+                }}
+        }
+
+    # Converting system dictionary into system Mueller Matrix object
+
+    system_mm = generate_system_mueller_matrix(system_dict)
+
+    # Define initial guesses for our parameters 
+    # Modify this if you want to change the parameters
+
+    p0 = {
+        "image_rotator" : 
+            {"phi": IMR_retardance(wavelength_bins)[wavelength_bin], "delta_theta": offset_imr},
+        "hwp" :  
+            {"phi": HWP_retardance(wavelength_bins)[wavelength_bin], "delta_theta": offset_hwp},
+        "lp" : 
+            {"delta_theta": offset_cal }
+    }
+
+    # Define some bounds
+    # Modify this if you want to change the parameters or minimization bounds
+
+    hwp_phi_bounds = (0.9*hwp_phi, 1.1*hwp_phi)
+    imr_phi_bounds = (0.9*imr_phi, 1.1*imr_phi)
+    offset_imr_bounds = (1.1*offset_imr, 0.9*offset_imr)
+    offset_hwp_bounds = (1.1*offset_hwp, 0.9*offset_hwp)
+    offset_cal_bounds = (1.1*offset_cal, 0.9*offset_cal)
+
+    # Minimize the system Mueller matrix using the interleaved values and standard deviations
+    # Modify this if you want to change the parameters
+
+    result, logl_result = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
+        interleaved_stds, configuration_list, bounds = [imr_phi_bounds, offset_imr_bounds,hwp_phi_bounds, offset_hwp_bounds, offset_cal_bounds],mode='CHARIS')
+    print(result)
+
+    # Update p dictionary with the fitted values
+
+    update_p0(p0, result.x)
+
+    # Process model
+
+    p0_values, p0_keywords = parse_configuration(p0)
+
+    # Generate modeled left and right beam intensities
+
+    updated_system_mm = update_system_mm(result.x, p0_keywords, system_mm)
+
+    # Generate modeled left and right beam intensities
+
+    LR_intensities2 = model(p0_values, p0_keywords, updated_system_mm, configuration_list)
+
+    # Process these into interleaved single normalized differences and sums
+
+    diffs_sums2 = process_model(LR_intensities2, 'CHARIS')
+
+    # Plot the modeled and observed values
+
+    plot_data_and_model(interleaved_values, interleaved_stds, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], mode='CHARIS',save_path=plot_path)
+
+    # Print the Mueller matrix
+
+    print("Updated Mueller Matrix:")
+    print(updated_system_mm.evaluate())
+
+    # Print residuals
+
+    residuals = interleaved_values[::2] - diffs_sums2[::2]
+    print("Residuals range:", residuals.min(), residuals.max())
+
+    # Save system dictionary to a json file
+
+    with open (new_system_dict_path, 'w') as f:
+        json.dump(p0, f, indent=4)
+
+
+
+
 
 #######################################################
 ###### Functions related to plotting ##################
