@@ -502,7 +502,7 @@ def run_mcmc(
 def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, 
     configuration_list, s_in = None, logl_function = None, 
     process_dataset = None, process_errors = None, process_model = None,
-    bounds = None):
+    bounds = None, mode = 'VAMPIRES'):
     '''
     Perform a minimization on a dataset, using a System Mueller Matrix model
     Args:
@@ -523,10 +523,15 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
     # print("p0_keywords: ", p0_keywords)
 
     # Running scipy.minimize
-    result = minimize(logl, p0_values, 
-        args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
-            s_in, logl_function, process_dataset, process_errors, process_model), 
-            method='L-BFGS-B', bounds = bounds)
+    if mode == 'VAMPIRES':
+        result = minimize(logl, p0_values, 
+            args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
+                s_in, logl_function, process_dataset, process_errors, process_model), 
+                method='Nelder-Mead', bounds = bounds)
+    elif mode == 'CHARIS':
+        result = minimize(logl_CHARIS, p0_values, 
+            args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
+                s_in), method='Powell', bounds = bounds)
     
     # Saving the final result's logl value
     logl_value = logl(result.x, p0_keywords, system_mm, dataset, errors, 
@@ -747,7 +752,7 @@ def generate_CHARIS_mueller_matrix(wavelength_bin, hwp_angle, imr_angle, beam, d
     else:
         return system_mm
 
-# note - edited to only use single differences
+
 def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
          s_in=None, logl_function=None, process_dataset=None, process_errors=None, 
          process_model=None):
@@ -798,9 +803,9 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
         s_in=s_in, process_model=process_model)
 
     # Convert lists to numpy arrays
-    dataset = np.array(dataset)[::2]
-    errors = np.array(errors)[::2]
-    output_intensities= output_intensities[::2]
+    dataset = np.array(dataset)
+    errors = np.array(errors)
+    
 
     # print("Output Intensities: ", np.shape(output_intensities))
 
@@ -826,10 +831,63 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     errors = np.maximum(errors, 1e-3)
     # Calculate log likelihood
     if logl_function is not None:
-        return logl_function(p, output_intensities, dataset, errors)
-    else: 
-        return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
+     return logl_function(p, output_intensities, dataset, errors)
+    else:
+     return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
 
+def logl_CHARIS(p, system_parameters, system_mm, dataset, errors, configuration_list, 
+         s_in=None):
+    """
+    Compute the log-likelihood of a model given a dataset and system configuration.
+
+    This function evaluates how well a set of system Mueller matrix parameters
+    (given by `p`) reproduce the observed dataset, using a chi-squared-based 
+    likelihood metric.
+    Parameters
+    ----------
+    p : list of float
+        List of current parameter values to optimize (flattened).
+    system_parameters : list of [str, str]
+        List of [component_name, parameter_name] pairs corresponding to `p`.
+    system_mm : pyMuellerMat.MuellerMat.SystemMuellerMatrix
+        Mueller matrix model of the optical system.
+    dataset : np.ndarray
+        Interleaved observed data values (e.g., [dd1, ds1, dd2, ds2, ...]).
+    errors : np.ndarray
+        Measurement errors associated with `dataset`, in the same order.
+    configuration_list : list of dict
+        Each dict describes the instrument configuration for a measurement, including 
+        settings like HWP angle, FLC state, etc.
+    s_in : np.ndarray, optional
+        Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
+
+    Returns
+    -------
+    float
+        The computed log-likelihood value (higher is better).
+    """
+
+    # print("Entered logl")
+
+    # Generating a list of model predicted values for each configuration - already parsed
+    output_intensities = model(p, system_parameters, system_mm, configuration_list, 
+        s_in=s_in)
+    # Convert to single differences
+    diffssums = process_model(output_intensities, mode='CHARIS')
+    # Convert lists to numpy arrays, only differences used
+    dataset = np.array(dataset)[::2]
+    errors = np.array(errors)[::2]
+    diffssums= diffssums[::2]
+
+    processed_dataset = copy.deepcopy(dataset)
+
+    processed_errors = copy.deepcopy(errors)
+
+    dataset = copy.deepcopy(processed_dataset)
+    errors = copy.deepcopy(processed_errors)
+    residuals = diffssums - dataset
+    chi_squared = np.sum((residuals / errors) ** 2)
+    return 0.5*chi_squared
 def build_differences_and_sums(intensities, normalized=False):
     '''
     Assume that the input intensities are organized in pairs. Such that
@@ -1209,9 +1267,11 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     # Create the plots
     if mode == 'VAMPIRES':
         num_plots = 2
+        sizex= 14
     elif mode == 'CHARIS':
         num_plots = 1
-    fig, axes = plt.subplots(1, num_plots, figsize=(14, 6), sharex=True)
+        sizex=10
+    fig, axes = plt.subplots(1, num_plots, figsize=(sizex, 6), sharex=True)
 
     # Double Difference plot
     if mode == 'VAMPIRES':
@@ -1241,6 +1301,7 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         ax.set_xlabel("HWP θ (deg)")
         ax.set_ylabel("Single Difference")
         ax.legend(title="IMR θ")
+        ax.grid()
 
     # Set a suptitle if wavelength is provided
     if wavelength is not None:
