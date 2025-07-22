@@ -1101,7 +1101,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_system_dict_p
     offset_hwp = -0.002 # HWP offset
     offset_cal = -0.035 # calibration polarizer offset
     imr_theta = 0 # placeholder 
-    hwp_theta = 0 # also placeholder
+    hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
     hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
 
@@ -1145,7 +1145,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_system_dict_p
         "hwp" :  
             {"phi": HWP_retardance(wavelength_bins)[wavelength_bin], "delta_theta": offset_hwp},
         "lp" : 
-            {"delta_theta": offset_cal }
+            {"delta_theta": offset_cal}
     }
 
     # Define some bounds
