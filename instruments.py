@@ -1047,13 +1047,12 @@ def process_errors(input_errors, input_dataset):
 
     return interleaved_errors
 
-
 # streamline process for all wavelength bins
 
-def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_system_dict_path,plot_path=None):
+def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):
     """
     Fits a Mueller matrix for one wavelength bin from internal calibration data and saves
-    the updated system dictionary to a JSON file. Creates a plot
+    the updated configuratio dictionary to a JSON file. Creates a plot
     of each updated model vs the data. Initial guesses for all fits are from Joost t Hart 2021.
     Note that following the most recent model update these guesses should be updated.
     The csv containing the calibration data and relevant headers can be obtained by 
@@ -1071,7 +1070,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_system_dict_p
         The index of the wavelength bin to fit (0-21 for CHARIS).
 
     new_system_dict_path : str or Path
-        Path to save the new system dictionary as a JSON file.
+        Path to save the new system dictionary as a JSON file. The config dict
+        component names will be 'lp' for calibration polarizer, 'image_rotator' for image rotator,
+        and 'hwp' for half-wave plate.
 
     plot_path : str or Path, optional
         Path to save the plot of the observed vs modeled data. If not provided, no plot will be saved.
@@ -1080,7 +1081,8 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_system_dict_p
     Returns
     -------
     None
-        The function saves the updated system dictionary to a JSON file and optionally saves a plot of the observed vs modeled data.
+        The function saves the updated system dictionary to a JSON file 
+        and optionally saves a plot of the observed vs modeled data.
     """
     # Check file paths
     filepath = Path(csv_path)
@@ -1089,9 +1091,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_system_dict_p
     plot_path = Path(plot_path)
     if plot_path.suffix != ".png":
         raise ValueError("Please provide a valid .png file for plotting.")
-    if new_system_dict_path.suffix != ".json":
+    if new_config_dict_path.suffix != ".json":
         raise ValueError("Please provide a valid .json file for saving the new system dictionary.")
-    new_system_dict_path = Path(new_system_dict_path)
+    new_config_dict_path = Path(new_config_dict_path)
     # Read in data
 
     interleaved_values, interleaved_stds, configuration_list = read_csv(filepath)
@@ -1161,9 +1163,26 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_system_dict_p
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
     # Modify this if you want to change the parameters
 
-    result, logl_result = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-        interleaved_stds, configuration_list, bounds = [imr_phi_bounds, offset_imr_bounds,hwp_phi_bounds, offset_hwp_bounds, offset_cal_bounds],mode='CHARIS')
-    print(result)
+    # Counters for iterative fitting
+
+    iteration = 1
+    previous_logl = 1000000
+    new_logl = 0
+
+    # Perform iterative fitting
+
+    while abs(previous_logl - new_logl) > 0.01*abs(previous_logl):
+        if iteration > 1:
+            previous_logl = new_logl
+        result, new_logl = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
+            interleaved_stds, configuration_list, bounds = [imr_phi_bounds, offset_imr_bounds,hwp_phi_bounds, offset_hwp_bounds, offset_cal_bounds],mode='CHARIS')
+        print(result)
+
+        # Update p0 with new values
+
+        update_p0(p0, result.x)
+        iteration += 1
+
 
     # Update p dictionary with the fitted values
 
@@ -1201,7 +1220,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_system_dict_p
 
     # Save system dictionary to a json file
 
-    with open (new_system_dict_path, 'w') as f:
+    with open (new_config_dict_path, 'w') as f:
         json.dump(p0, f, indent=4)
 
 
@@ -1565,9 +1584,9 @@ def plot_fluxes(csv_path, plot_save_path=None):
         print(f"Plot saved to {plot_save_path}")
 
     
-def plot_sys_dict_vs_wavelength(component, parameter, json_dir, save_path=None, title=None, axtitle=None):
+def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=None, title=None, axtitle=None):
     """
-    Plots a parameter in the JSON system dictionaries vs wavelength.
+    Plots a parameter in the JSON configuration dictionaries vs wavelength.
     Only works if all JSON dictionaries are in a directory labeled
     by bin. Sets parameters phi, delta_theta, and theta to degrees.
     Returns an array of the parameters to allow for custom plotting.
@@ -1580,8 +1599,10 @@ def plot_sys_dict_vs_wavelength(component, parameter, json_dir, save_path=None, 
     parameter : str
         The key of the parameter in the system dictionary.
     json_dir : str or Path
-        The directory containing the JSON system dictionaries for all 22 bins.
-        Make sure the directory only contains these 22 JSON files.
+        The directory containing the JSON configuration dictionaries for all 22 bins.
+        Make sure the directory only contains these 22 JSON files. 
+        Component names are 'lp' for calibration polarizer, 'image_rotator' for image rotator,
+        and 'hwp' for half-wave plate.
     save_path : str or Path, optional
         If specified, saves the plot to this path. Otherwise, displays the plot.
     title : str, optional
@@ -1672,7 +1693,7 @@ def plot_sys_dict_vs_wavelength(component, parameter, json_dir, save_path=None, 
    
 def plot_polarimetric_efficiency(json_dir, bins, save_path=None, title=None):
     """
-    Plots the polarimetric efficiency from the system dictionaries vs derotator angle.
+    Plots the polarimetric efficiency from JSON configuration dictionaries vs derotator angle.
     Only works if all JSON dictionaries are in a directory labeled
     by bin. Returns an array of the polarimetric efficiency values.
     This plot is similar to the one in van Holstein 2020. Also plots
@@ -1682,7 +1703,9 @@ def plot_polarimetric_efficiency(json_dir, bins, save_path=None, title=None):
     ----------
     json_dir : str or Path
         The directory containing the JSON system dictionaries for all 22 bins.
-        Make sure the directory only contains these 22 JSON files.
+        Make sure the directory only contains these 22 JSON files. Component names
+        are 'lp' for calibration polarizer, 'image_rotator' for image rotator,
+        and 'hwp' for half-wave plate.
     bins : np.ndarray
         An array of wavelength bins to simultaneously plot.
     save_path : str or Path, optional

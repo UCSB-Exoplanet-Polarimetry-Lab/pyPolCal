@@ -81,7 +81,7 @@ def retardance(r_tot_s, r_tot_p):
 #####################################
 
 def return_n(wavelength, material):
-    """Return the refractive index of a material at a given wavelength.
+    """Return the refractive index of a material     at a given wavelength.
     
     Parameters
     ----------
