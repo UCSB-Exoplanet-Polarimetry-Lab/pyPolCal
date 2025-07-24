@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import cmath
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 # all functions adapted from Joost 't Hart 2021
 
@@ -9,17 +10,20 @@ import matplotlib.pyplot as plt
 ### Retrieving refraction indeces ###
 #####################################
 
+here = Path(__file__).resolve().parent
+
+
 # Reading in all indices of refraction 
-n_silver_list = pd.read_csv("physical_model_csvs/silver_n.csv")
-n_quartz_list = pd.read_csv("physical_model_csvs/Gao.csv")
-n_o_quartz_list = pd.read_csv("physical_model_csvs/Ghosh-o.csv")
-n_e_quartz_list = pd.read_csv("physical_model_csvs/Ghosh-e.csv")
-n_air_list = pd.read_csv("physical_model_csvs/Ciddor.csv")
-n_o_MgF2_list = pd.read_csv("physical_model_csvs/MgF2_Dodge_n_o.csv")
-n_e_MgF2_list = pd.read_csv("physical_model_csvs/MgF2_Dodge_n_e.csv")
+n_silver_list = pd.read_csv(here / "physical_model_csvs/silver_n.csv")
+n_quartz_list = pd.read_csv(here / "physical_model_csvs/Gao.csv")
+n_o_quartz_list = pd.read_csv(here / "physical_model_csvs/Ghosh-o.csv")
+n_e_quartz_list = pd.read_csv(here / "physical_model_csvs/Ghosh-e.csv")
+n_air_list = pd.read_csv(here / "physical_model_csvs/Ciddor.csv")
+n_o_MgF2_list = pd.read_csv(here / "physical_model_csvs/MgF2_Dodge_n_o.csv")
+n_e_MgF2_list = pd.read_csv(here / "physical_model_csvs/MgF2_Dodge_n_e.csv")
 
 # For the imaginary part of silver's refractive index
-k_silver_list = pd.read_csv("physical_model_csvs/silver_k.csv")
+k_silver_list = pd.read_csv(here / "physical_model_csvs/silver_k.csv")
 
 # Turning all pandas dataframes 
 n_silver_list = pd.DataFrame(n_silver_list).to_numpy()

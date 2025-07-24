@@ -535,7 +535,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
     elif mode == 'CHARIS':
         result = minimize(logl_CHARIS, p0_values, 
             args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
-                s_in), method='Powell', bounds = bounds)
+                s_in), method='L-BFGS-B', bounds = bounds)
     
     # Saving the final result's logl value
     logl_value = logl(result.x, p0_keywords, system_mm, dataset, errors, 
@@ -1222,6 +1222,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     with open (new_config_dict_path, 'w') as f:
         json.dump(p0, f, indent=4)
+    return result.hess_inv
 
 
 
@@ -1847,6 +1848,94 @@ def plot_polarimetric_efficiency(json_dir, bins, save_path=None, title=None):
     plt.show()
     return pol_efficiencies
 
+
+def plot_pol_efficiency_from_data(csv_dir, bins, save_path=None, title=None):
+    """Plots polarimetric efficiency as a function of 
+    the derotator angle from a csv with relevant columns (can be
+    obtained from write_fits_info_to_csv) assuming a total linearly horizontally
+    polarized source. This assumes 8 derotator angles and 9 hwp angles. Can plot
+    multiple wavelength bins simultaneously.
+    
+    Parameters:
+    -----------
+    csv_path : str or Path
+        Path to the CSV directory containing csvs with relevant bins.
+
+    save_path : str or Path, optional
+        If provided, the plot will be saved to this path. Must end with '.png'.
+
+    title : str, optional
+        Title of the plot. If None, a default title will be used.
+    Returns:
+    --------
+    pol_efficiency : np.array
+        Polarimetric efficiency calculated from the interleaved values.
+    """
+    csv_dir= Path(csv_dir)
+
+    # Load csvs
+
+    csv_files = sorted(csv_dir.glob("*.csv"))
+
+    # Check for bins
+ 
+    for f in csv_files:
+     try:
+        match = re.search(r'bin(\d+)', f.name)
+        if not match:
+            raise ValueError(f"File {f.name} does not match expected naming convention.")
+     except Exception as e:
+        raise ValueError(f"Error processing file {f.name}: {e}")
+     
+    # Sort csvs and extract interleaved values
+    derotator_angles = np.linspace(45,132.5,8)
+    sorted_files = sorted(csv_files, key=lambda f: int(re.search(r'bin(\d+)', f.name).group(1)))
+    output = []
+    for wavelength_bin in bins:
+        # Create efficiency array
+        efficiencies = []
+        file = sorted_files[wavelength_bin]
+        interleaved_values = read_csv(file)[0]
+        diffs = interleaved_values[::2]
+        # Extract the values for each derotator angle
+        for i in range(8):  # 8 derotator angles
+            start = i * 9
+            hwp_diffs = diffs[start:start + 9]  # 9 HWP angles for this derotator
+            # Double-difference using HWP 0°, 22.5°, 45°, 67.5°
+            try:
+                Q = 0.5 * (hwp_diffs[0] - hwp_diffs[4])  # 0° - 45°
+                U = 0.5 * (hwp_diffs[2] - hwp_diffs[6])  # 22.5° - 67.5°
+            except IndexError:
+                print(f"Error: Missing HWP angle at derotator index {i}, file {file}")
+                Q = U = 0.0
+
+            pol_eff = np.sqrt(Q**2 + U**2)
+            efficiencies.append(pol_eff)
+        output.append(efficiencies)
+    pol_efficiencies = np.array(output)
+
+    # Plot vs derotator angle
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for i, wavelength_bin in enumerate(bins):
+        ax.plot(derotator_angles, pol_efficiencies[i], label=f"{int(wavelength_bins[wavelength_bin])} nm")
+        ax.scatter(derotator_angles, pol_efficiencies[i], marker='x', alpha=0.7)
+    ax.set_xlabel('Derotator Angle (degrees)')
+    ax.set_ylabel('Polarimetric Efficiency')
+    from matplotlib.ticker import MultipleLocator
+    ax.xaxis.set_major_locator(MultipleLocator(15))
+    ax.yaxis.set_major_locator(MultipleLocator(0.1))
+    if title is None:
+        ax.set_title('Polarimetric Efficiency vs Derotator Angle')
+    else:
+        ax.set_title(title)
+    ax.grid(True)
+    ax.legend(loc='lower center')
+    if save_path is not None:
+        plt.savefig(save_path)
+        print(f"Plot saved to {save_path}")
+    plt.show()
+    return pol_efficiencies
 
 
 
