@@ -1075,7 +1075,8 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     The csv containing the calibration data and relevant headers can be obtained by 
     the write_fits_info_to_csv function in instruments.py. This code currently fits for
     derotator retardance/offset, HWP retardance/offset, and calibration polarizer offset.
-    It can be modified relatively easily to fit for other parameters as well. 
+    It can be modified relatively easily to fit for other parameters as well. CURRENT 
+    PARAMETERS: IMR retardance, HWP retardance, calibration polarizer diattenuation.
 
     Parameters
     ----------
@@ -1115,15 +1116,16 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     interleaved_values, interleaved_stds, configuration_list = read_csv(filepath)
 
-    # Loading in past fits from Joost t Hart 2021
+    # Loading in past fits 
 
-    offset_imr = -0.0118 # derotator offset
-    offset_hwp = -0.002 # HWP offset
-    offset_cal = -0.035 # calibration polarizer offset
+    offset_imr = -0.01062 # derotator offset
+    offset_hwp = -0.0022 # HWP offset
+    offset_cal = -0.0315 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
     hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
+    epsilon_cal = 0.98
 
     # Define instrument configuration as system dictionary
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
@@ -1146,8 +1148,8 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
                     "tag": "internal",
                 },
                 "lp" : {  # calibration polarizer for internal calibration source
-                    "type": "general_linear_polarizer_function_with_theta",
-                    "properties": {"delta_theta": offset_cal },
+                    "type": "diattenuator_retarder_function",
+                    "properties": {"epsilon": epsilon_cal, "delta_theta": offset_cal },
                     "tag": "internal",
                 }}
         }
@@ -1161,11 +1163,11 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     p0 = {
         "image_rotator" : 
-            {"phi": IMR_retardance(wavelength_bins)[wavelength_bin], "delta_theta": offset_imr},
+            {"phi": IMR_retardance(wavelength_bins)[wavelength_bin]},
         "hwp" :  
-            {"phi": HWP_retardance(wavelength_bins)[wavelength_bin], "delta_theta": offset_hwp},
+            {"phi": HWP_retardance(wavelength_bins)[wavelength_bin]},
         "lp" : 
-            {"delta_theta": offset_cal}
+            {"epsilon": epsilon_cal}
     }
 
     # Define some bounds
@@ -1175,6 +1177,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     imr_phi_bounds = (0.9*imr_phi, 1.1*imr_phi)
     offset_imr_bounds = (1.1*offset_imr, 0.9*offset_imr)
     offset_hwp_bounds = (1.1*offset_hwp, 0.9*offset_hwp)
+    epsilon_cal_bounds = (0.9*epsilon_cal, 1)
     offset_cal_bounds = (1.1*offset_cal, 0.9*offset_cal)
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
@@ -1192,7 +1195,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
         if iteration > 1:
             previous_logl = new_logl
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, bounds = [imr_phi_bounds, offset_imr_bounds,hwp_phi_bounds, offset_hwp_bounds, offset_cal_bounds],mode='CHARIS')
+            interleaved_stds, configuration_list, bounds = [imr_phi_bounds,hwp_phi_bounds,epsilon_cal_bounds],mode='CHARIS')
         print(result)
 
         # Update p0 with new values
@@ -1697,7 +1700,7 @@ def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=Non
     # Plot vs wavelength bins
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.scatter(wavelength_bins, parameters, marker='x')
+    ax.scatter(wavelength_bins, parameters, marker='x',color='black', linewidths = 1)
     ax.set_xlabel('Wavelength (nm)')
     if axtitle is not None:
         ax.set_ylabel(axtitle)
@@ -1854,7 +1857,7 @@ def plot_polarimetric_efficiency(json_dir, bins, save_path=None, title=None):
     fig, ax = plt.subplots(figsize=(10, 6))
     for i, wavelength_bin in enumerate(bins):
         ax.plot(derotator_angles, pol_efficiencies[i], label=f"{int(wavelength_bins[wavelength_bin])} nm")
-        ax.scatter(derotator_angles_measured, pol_efficiencies_measured[i], marker='x')
+        ax.scatter(derotator_angles_measured, pol_efficiencies_measured[i], marker='x', color='black')
     ax.scatter([], [], marker='x', color='black', label='Angles Used in Data')
     ax.set_xlabel('Derotator Angle (degrees)')
     ax.set_ylabel('Polarimetric Efficiency')
@@ -1945,7 +1948,7 @@ def plot_pol_efficiency_from_data(csv_dir, bins, save_path=None, title=None):
     fig, ax = plt.subplots(figsize=(10, 6))
     for i, wavelength_bin in enumerate(bins):
         ax.plot(derotator_angles, pol_efficiencies[i], label=f"{int(wavelength_bins[wavelength_bin])} nm")
-        ax.scatter(derotator_angles, pol_efficiencies[i], marker='x', alpha=0.7)
+        ax.scatter(derotator_angles, pol_efficiencies[i], marker='x', alpha=0.7, color='black')
     ax.set_xlabel('Derotator Angle (degrees)')
     ax.set_ylabel('Polarimetric Efficiency')
     from matplotlib.ticker import MultipleLocator
@@ -1964,6 +1967,137 @@ def plot_pol_efficiency_from_data(csv_dir, bins, save_path=None, title=None):
     return pol_efficiencies, fig, ax
 
 
+def model_data(json_dir, csv_path=None):
+    """
+    Creates a Pandas DataFrame of the fitted IMR/HWP retardances and 
+    calibration polarizer diattenuation per wavelength bin from a directory of 22 JSON 
+    dictionaries. Optionally saves the DataFrame to a CSV file. CURRENT PARAMETERS:
+    hwp_retardance, imr_retardance, calibration_polarizer_diattenuation.
+    
+    Parameters
+    ----------
+    json_dir : str or Path
+        The directory containing the JSON system dictionaries for all 22 bins.
+        Make sure the directory only contains these 22 JSON files. Component names
+        are 'lp' for calibration polarizer, 'image_rotator' for image rotator,
+        and 'hwp' for half-wave plate.
+
+    csv_path : str or Path, optional
+        If specified, saves the DataFrame to this path as a CSV file.
+        
+    Returns
+    -------
+    df : pd.DataFrame
+        A DataFrame containing all fitted retardances by wavelength and offset angles with errors.
+    """
+    # Check filepaths
+
+    json_dir = Path(json_dir)
+    if not json_dir.is_dir():
+        raise ValueError(f"{json_dir} is not a valid directory.")
+    if csv_path is not None:
+        csv_path = Path(csv_path)
+    
+    # Create dataframe
+
+    df = pd.DataFrame(columns=['wavelength_bin', 'hwp_retardance',  'imr_retardance', 'calibration_polarizer_diattenuation'])
+
+   # Load JSON files
+
+    json_files = sorted(json_dir.glob("*.json"))
+
+    # Check for correct file amount
+
+    if len(json_files) != 22:
+        raise ValueError(f"Expected 22 JSON files, found {len(json_files)}.")
+    
+    # Check for bins
+ 
+    for f in json_files:
+     try:
+        match = re.search(r'bin(\d+)', f.name)
+        if not match:
+            raise ValueError(f"File {f.name} does not match expected naming convention.")
+     except Exception as e:
+        raise ValueError(f"Error processing file {f.name}: {e}")
+     
+     # Sort Jsons
+
+    sorted_files = sorted(json_files, key=lambda f: int(re.search(r'bin(\d+)', f.name).group(1)))
+
+    # Extract retardances and offsets
+
+    hwp_retardances = []
+    imr_retardances = []
+    #hwp_offsets = []
+    #imr_offsets = []
+    #lp_offsets = []
+    lp_epsilons = []
+    for f in sorted_files:
+        with open(f, 'r') as file:
+            data = json.load(file)
+            if 'hwp' not in data or 'image_rotator' not in data or 'lp' not in data:
+                raise ValueError(f"Required components not found in {f.name}.")
+            
+            # Extract retardances
+            hwp_retardance = data['hwp']['phi']
+            imr_retardance = data['image_rotator']['phi']
+            # Extract lp diattenuation
+            lp_epsilon = data['lp']['epsilon']
+            # Extract offset angles 
+            #hwp_offset = data['hwp']['delta_theta']
+            #imr_offset = data['image_rotator']['delta_theta']
+            #lp_offset = data['lp']['delta_theta'] 
+            hwp_retardances.append(hwp_retardance)
+            imr_retardances.append(imr_retardance)
+            #hwp_offsets.append(hwp_offset)
+            #imr_offsets.append(imr_offset)
+            #lp_offsets.append(lp_offset)
+            lp_epsilons.append(lp_epsilon)
+
+    # Find offset averages/errors
+
+    #hwp_offset_error = np.std(hwp_offsets)
+    #imr_offset_error = np.std(imr_offsets)
+    #lp_offset_error = np.std(lp_offsets)
+    #hwp_offset = np.mean(hwp_offsets)
+    #imr_offset = np.mean(imr_offsets)
+    #lp_offset = np.mean(lp_offsets)
+
+    # Replace offset angles with averages
+
+    #hwp_offsets = [hwp_offset] * len(hwp_offsets)
+    #imr_offsets = [imr_offset] * len(imr_offsets)
+    #lp_offsets = [lp_offset] * len(lp_offsets)
+
+    # Make errors lists
+
+    #hwp_offset_errors = [hwp_offset_error] * len(hwp_offsets)
+    #imr_offset_errors = [imr_offset_error] * len(imr_offsets)
+    #lp_offset_errors = [lp_offset_error] * len(lp_offsets)
+
+    # Fill DataFrame
+
+    df['wavelength_bin'], df['hwp_retardance'], df['imr_retardance'], \
+        df['calibration_polarizer_diattenuation'] = \
+        (wavelength_bins, hwp_retardances, imr_retardances, lp_epsilons)   
+    
+    # Save to CSV if specified
+
+    if csv_path is not None:
+        df.to_csv(csv_path, index=False)
+        print(f"Data saved to {csv_path}")
+    
+    return df
+    
+
+
+    
+
+    
+
+    
+    
 
 
           
