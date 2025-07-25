@@ -23,6 +23,7 @@ import os
 from functools import partial
 from CHARIS.physical_models import HWP_retardance, IMR_retardance
 import json
+from scipy.optimize import least_squares
 
 ###############################################################
 ###### Functions related to reading/writing in .csv values ####
@@ -118,6 +119,7 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
 
     sum_std = np.sqrt(single_sum) # Assuming Poisson noise for counts
     diff_std = np.sqrt((4*(left_counts**2)*right_counts + 4*(right_counts**2)*left_counts) / (single_sum**4)) # error propagation for normalized difference
+    #diff_std = np.abs(0.1*norm_single_diff) # Dummy error
     return (single_sum, norm_single_diff, left_counts, right_counts, sum_std, diff_std)
 
 # function to fix corrupted hwp data
@@ -533,17 +535,31 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
                 s_in, logl_function, process_dataset, process_errors, process_model), 
                 method='Nelder-Mead', bounds = bounds)
     elif mode == 'CHARIS':
-        result = minimize(logl_CHARIS, p0_values, 
+        lower_bounds = [bound[0] for bound in bounds]
+        upper_bounds = [bound[1] for bound in bounds]
+        result = least_squares(logl_CHARIS, p0_values, 
             args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
-                s_in), method='L-BFGS-B', bounds = bounds)
+                s_in), method='trf', bounds = (lower_bounds, upper_bounds))
+        J = result.jac
+        residual = result.fun
+        dof = len(residual) - len(result.x)  # degrees of freedom
+        s_res_squared = np.sum(residual**2) / dof
+        cov = s_res_squared * np.linalg.inv(J.T @ J)
+        errors = np.sqrt(np.diag(cov))
+                    
+            
     
     # Saving the final result's logl value
-    logl_value = logl(result.x, p0_keywords, system_mm, dataset, errors, 
-        configuration_list, s_in=s_in, logl_function=logl_function, 
-        process_dataset=process_dataset, process_errors = process_errors, 
-        process_model = process_model)
-    
-    return result, logl_value
+    if mode == 'VAMPIRES':
+        logl_value = logl(result.x, p0_keywords, system_mm, dataset, errors, 
+            configuration_list, s_in=s_in, logl_function=logl_function, 
+            process_dataset=process_dataset, process_errors = process_errors, 
+            process_model = process_model)
+    if mode == 'CHARIS':
+        logl_value = -result.cost
+        return result, logl_value, errors
+    else:
+        return result, logl_value
 
 def parse_configuration(configuration):
     '''
@@ -838,7 +854,7 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
      return logl_function(p, output_intensities, dataset, errors)
     else:
      return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
-
+# transformed to residual func
 def logl_CHARIS(p, system_parameters, system_mm, dataset, errors, configuration_list, 
          s_in=None):
     """
@@ -890,8 +906,9 @@ def logl_CHARIS(p, system_parameters, system_mm, dataset, errors, configuration_
     dataset = copy.deepcopy(processed_dataset)
     errors = copy.deepcopy(processed_errors)
     residuals = diffssums - dataset
-    chi_squared = np.sum((residuals / errors) ** 2)
-    return 0.5*chi_squared
+    #chi_squared = np.sum((residuals / errors) ** 2)
+    residual = residuals / errors
+    return residual
 def build_differences_and_sums(intensities, normalized=False):
     '''
     Assume that the input intensities are organized in pairs. Such that
@@ -1174,7 +1191,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     while abs(previous_logl - new_logl) > 0.01*abs(previous_logl):
         if iteration > 1:
             previous_logl = new_logl
-        result, new_logl = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
+        result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
             interleaved_stds, configuration_list, bounds = [imr_phi_bounds, offset_imr_bounds,hwp_phi_bounds, offset_hwp_bounds, offset_cal_bounds],mode='CHARIS')
         print(result)
 
@@ -1217,12 +1234,13 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     residuals = interleaved_values[::2] - diffs_sums2[::2]
     print("Residuals range:", residuals.min(), residuals.max())
+    print("Error:", error)
 
     # Save system dictionary to a json file
 
     with open (new_config_dict_path, 'w') as f:
         json.dump(p0, f, indent=4)
-    return result.hess_inv
+    return error
 
 
 
@@ -1515,7 +1533,9 @@ def plot_fluxes(csv_path, plot_save_path=None):
 
     Returns: 
     --------
-    None
+    fig, ax : matplotlib Figure and Axes
+    A tuple containing the Figure and Axes objects of the plot.
+
     """
     
     # check if csv_path is a valid file path
@@ -1571,7 +1591,7 @@ def plot_fluxes(csv_path, plot_save_path=None):
 
 
     ax.grid()
-    plt.show()
+
 
     # save plot if a path is provided
 
@@ -1583,6 +1603,7 @@ def plot_fluxes(csv_path, plot_save_path=None):
             raise ValueError("Plot save path must end with '.png'.")
         fig.savefig(plot_save_path)
         print(f"Plot saved to {plot_save_path}")
+    return fig, ax
 
     
 def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=None, title=None, axtitle=None):
@@ -1617,6 +1638,8 @@ def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=Non
         An array of the parameter values extracted from the JSON files.
         To plot, plot against the default CHARIS wavelength bins (can
         be found in instruments.py).
+    fig, ax : matplotlib Figure and Axes
+        The Figure and Axes objects of the plot.
     """
 
     # Check filepaths
@@ -1688,8 +1711,8 @@ def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=Non
     if save_path is not None:
         plt.savefig(save_path)
         print(f"Plot saved to {save_path}")
-    plt.show()
-    return parameters
+    
+    return parameters,fig,ax
     
    
 def plot_polarimetric_efficiency(json_dir, bins, save_path=None, title=None):
@@ -1719,7 +1742,8 @@ def plot_polarimetric_efficiency(json_dir, bins, save_path=None, title=None):
     polarimetric_efficiency : np.ndarray
         A 2 dimensional array of the polarimetric efficiency values extracted from the JSON files
         where the first dimension corresponds to the wavelength bins and the second dimension represents the derotator angles.
-    
+    fig, ax : matplotlib Figure and Axes
+        The Figure and Axes objects of the plot.
     """
     # Check filepaths
 
@@ -1845,8 +1869,8 @@ def plot_polarimetric_efficiency(json_dir, bins, save_path=None, title=None):
     if save_path is not None:
         plt.savefig(save_path)
         print(f"Plot saved to {save_path}")
-    plt.show()
-    return pol_efficiencies
+    
+    return pol_efficiencies, fig, ax
 
 
 def plot_pol_efficiency_from_data(csv_dir, bins, save_path=None, title=None):
@@ -1870,6 +1894,8 @@ def plot_pol_efficiency_from_data(csv_dir, bins, save_path=None, title=None):
     --------
     pol_efficiency : np.array
         Polarimetric efficiency calculated from the interleaved values.
+    fig, ax : matplotlib Figure and Axes
+        The Figure and Axes objects of the plot.
     """
     csv_dir= Path(csv_dir)
 
@@ -1934,8 +1960,8 @@ def plot_pol_efficiency_from_data(csv_dir, bins, save_path=None, title=None):
     if save_path is not None:
         plt.savefig(save_path)
         print(f"Plot saved to {save_path}")
-    plt.show()
-    return pol_efficiencies
+    
+    return pol_efficiencies, fig, ax
 
 
 
