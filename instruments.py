@@ -216,16 +216,81 @@ def run_mcmc(
     priors, bounds, logl_function, output_h5_file,
     nwalkers=64, nsteps=10000, pool_processes=None, 
     s_in=np.array([1, 0, 0, 0]), process_dataset=None, 
-    process_errors=None, process_model=None, resume=True, multiprocess = True
+    process_errors=None, process_model=None, resume=True,
+    include_log_f=False, log_f=-3.0
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
+
+    This function supports standard system Mueller matrix fitting as well as
+    extended likelihoods that include a noise-scaling term (`log_f`) in the model.
+
+    Parameters
+    ----------
+    p0_dict : dict
+        Nested dictionary of initial parameter guesses structured by component.
+    system_mm : SystemMuellerMatrix
+        The optical system's Mueller matrix object.
+    dataset : np.ndarray
+        Observed data values (interleaved double differences and sums).
+    errors : np.ndarray
+        Standard deviations associated with each element of `dataset`.
+    configuration_list : list of dict
+        List of per-measurement configurations (e.g., HWP/FLC angles).
+    priors : dict
+        Dictionary mapping parameter names to prior functions.
+    bounds : dict
+        Dictionary of (low, high) tuples for each parameter.
+    logl_function : callable
+        Log-likelihood function to evaluate model fit.
+    output_h5_file : str
+        Path to the output HDF5 file used to store MCMC results.
+    nwalkers : int, optional
+        Number of walkers (default is max of 2x parameters or process-scaled).
+    nsteps : int, optional
+        Number of steps for each walker.
+    pool_processes : int, optional
+        Number of parallel processes to use.
+    s_in : np.ndarray, optional
+        Input Stokes vector for the system (default: [1, 0, 0, 0]).
+    process_dataset : callable, optional
+        Function to process the dataset before likelihood comparison.
+    process_errors : callable, optional
+        Function to process errors in the same way as the dataset.
+    process_model : callable, optional
+        Function to process model outputs before likelihood comparison.
+    resume : bool, optional
+        If True and the HDF5 file exists, resume from saved state.
+    include_log_f : bool, optional
+        If True, appends a `log_f` noise inflation parameter to the parameter list.
+    log_f0 : float, optional
+        Initial value for `log_f` if `include_log_f` is True.
+
+    Returns
+    -------
+    sampler : emcee.EnsembleSampler
+        The sampler object containing the MCMC chain.
+    p_keys : list of tuple
+        List of (component, parameter) key pairs used for tracking parameters.
     """
 
     p0_values, p_keys = parse_configuration(p0_dict)
-    ndim = len(p0_values)
 
-    log_prior = mcmc.log_prior
+    if include_log_f:
+        p0_values = p0_values + [log_f]
+        p_keys.append(("log_f", "log_f"))
+        
+        # Add default bounds for log_f
+        bounds["log_f"] = {"log_f": (-10, 0)}
+
+        # Add default uniform prior for log_f
+        priors.setdefault("log_f", {})
+        priors["log_f"]["log_f"] = {
+            "type": "uniform",
+            "kwargs": {"low": -10, "high": 0}
+        }
+
+    ndim = len(p0_values)
 
     resume = os.path.exists(output_h5_file)
     backend = emcee.backends.HDFBackend(output_h5_file)
@@ -238,18 +303,13 @@ def run_mcmc(
     args = (
         system_mm, dataset, errors, configuration_list, p_keys, s_in,
         process_model, process_dataset, process_errors,
-        priors, bounds, logl_function
+        priors, bounds, logl_with_logf
     )
 
-    if multiprocess:
-        with Pool(processes=pool_processes) as pool:
-            sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob, 
-                args=args, pool=pool, backend=backend)
-    else:
+    with Pool(processes=pool_processes) as pool:
         sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob, 
-                args=args, backend=backend)
-
-    sampler.run_mcmc(pos, nsteps, progress=True)
+            args=args, pool=pool, backend=backend)
+        sampler.run_mcmc(pos, nsteps, progress=True)
 
     return sampler, p_keys
 
@@ -419,6 +479,36 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
     output_intensities = np.array(output_intensities)
 
     return output_intensities
+
+def logl_with_logf(theta, system_mm, dataset, errors, configuration_list, 
+                   system_parameters, s_in, process_model, process_dataset, 
+                   process_errors):
+    """
+    Log-likelihood function that includes a noise inflation parameter log_f.
+    """
+    log_f = theta[-1]
+    theta = theta[:-1]
+
+    # Generate model output
+    model_output = model(theta, system_parameters, system_mm, configuration_list,
+                         s_in=s_in, process_model=process_model)
+
+    # Convert to jax arrays
+    dataset = jnp.array(dataset)
+    errors = jnp.array(errors)
+
+    # Save raw copies before processing
+    raw_dataset = copy.deepcopy(dataset)
+    raw_errors = copy.deepcopy(errors)
+
+    # Apply processing
+    if process_dataset is not None:
+        dataset = process_dataset(raw_dataset)
+    if process_errors is not None:
+        errors = process_errors(raw_errors, raw_dataset)
+
+    sigma2 = errors**2 + jnp.exp(2 * log_f)
+    return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
 
 # @jit
 def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 

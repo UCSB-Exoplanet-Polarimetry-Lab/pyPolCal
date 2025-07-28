@@ -597,7 +597,6 @@ def build_differences_and_sums(intensities):
 
     return differences, sums
 
-@jit
 def build_double_differences_and_sums(differences, sums, normalized = True):
     '''
     Assume that the input intensities are organized in pairs. Such that
@@ -675,8 +674,11 @@ def process_errors(input_errors, input_dataset):
     input_errors = np.array(input_errors)
     input_dataset = np.array(input_dataset)
 
+    # Separating out differences, sums, and corresponding errors
     single_differences = input_dataset[::2]
     single_sums = input_dataset[1::2]
+    single_difference_errors = input_errors[::2]
+    single_sum_errors = input_errors[1::2]
 
     # Compute double differences and double sums - changed so that interleaved values are the doubl
     double_differences_numerators, double_sums_numerators = \
@@ -686,8 +688,8 @@ def process_errors(input_errors, input_dataset):
 
     # Compute errors for differences and sums
     # NOTE: All the numerator and denominator errors are all the same
-    differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
-    sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+    differences_errors = np.sqrt(single_difference_errors[::2]**2 + single_difference_errors[1::2]**2)
+    sums_errors = np.sqrt(single_sum_errors[::2]**2 + single_sum_errors[1::2]**2)
     denominator_errors = sums_errors
     denominator = (single_sums[::2] + single_sums[1::2])  # This is used for normalization
 
