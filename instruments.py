@@ -1176,22 +1176,27 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     p0 = {
         "image_rotator" : 
-            {"phi": IMR_retardance(wavelength_bins)[wavelength_bin]},
+            {"phi": IMR_retardance(wavelength_bins)[wavelength_bin],  "delta_theta": offset_imr},
         "hwp" :  
-            {"phi": HWP_retardance(wavelength_bins)[wavelength_bin]},
+            {"phi": HWP_retardance(wavelength_bins)[wavelength_bin],  "delta_theta": offset_hwp},
         "lp" : 
-            {"epsilon": epsilon_cal}
+            {"epsilon": epsilon_cal, "delta_theta": offset_cal }
     }
 
     # Define some bounds
     # Modify this if you want to change the parameters or minimization bounds
-
-    hwp_phi_bounds = (0.9*hwp_phi, 1.1*hwp_phi)
-    imr_phi_bounds = (0.9*imr_phi, 1.1*imr_phi)
-    offset_imr_bounds = (1.1*offset_imr, 0.9*offset_imr)
-    offset_hwp_bounds = (1.1*offset_hwp, 0.9*offset_hwp)
+    offset_bounds = (-5,5)
+    hwpstd = 0.1*np.abs(hwp_phi)
+    hwp_phi_bounds = (hwp_phi-hwpstd, hwp_phi+hwpstd)
+    imrstd = 0.1*np.abs(imr_phi)
+    imr_phi_bounds = (imr_phi-imrstd, imr_phi+imrstd)
+    imrostd = 0.1*np.abs(offset_imr)
+    offset_imr_bounds = (offset_imr-imrostd, offset_imr+imrostd)
+    hwpostd = 0.1*np.abs(offset_hwp)
+    offset_hwp_bounds = (offset_hwp-hwpostd, offset_hwp+hwpostd)
     epsilon_cal_bounds = (0.9*epsilon_cal, 1)
-    offset_cal_bounds = (1.1*offset_cal, 0.9*offset_cal)
+    calostd = 0.1 *np.abs(offset_cal)
+    offset_cal_bounds = (offset_cal-calostd, offset_cal+calostd)
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
     # Modify this if you want to change the parameters
@@ -1208,7 +1213,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
         if iteration > 1:
             previous_logl = new_logl
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, bounds = [imr_phi_bounds,hwp_phi_bounds,epsilon_cal_bounds],mode='CHARIS')
+            interleaved_stds, configuration_list, bounds = [imr_phi_bounds,offset_bounds,hwp_phi_bounds,offset_bounds,epsilon_cal_bounds,offset_bounds],mode='CHARIS')
         print(result)
 
         # Update p0 with new values
@@ -2013,7 +2018,8 @@ def model_data(json_dir, csv_path=None):
     
     # Create dataframe
 
-    df = pd.DataFrame(columns=['wavelength_bin', 'hwp_retardance',  'imr_retardance', 'calibration_polarizer_diattenuation'])
+    df = pd.DataFrame(columns=['wavelength_bin', 'hwp_retardance',  'imr_retardance', 'calibration_polarizer_diattenuation',
+                      'hwp_offset', 'hwp_offset_std','imr_offset','imr_offset_std','cal_offset','cal_offset_std'])
 
    # Load JSON files
 
@@ -2042,9 +2048,9 @@ def model_data(json_dir, csv_path=None):
 
     hwp_retardances = []
     imr_retardances = []
-    #hwp_offsets = []
-    #imr_offsets = []
-    #lp_offsets = []
+    hwp_offsets = []
+    imr_offsets = []
+    lp_offsets = []
     lp_epsilons = []
     for f in sorted_files:
         with open(f, 'r') as file:
@@ -2058,42 +2064,44 @@ def model_data(json_dir, csv_path=None):
             # Extract lp diattenuation
             lp_epsilon = data['lp']['epsilon']
             # Extract offset angles 
-            #hwp_offset = data['hwp']['delta_theta']
-            #imr_offset = data['image_rotator']['delta_theta']
-            #lp_offset = data['lp']['delta_theta'] 
+            hwp_offset = data['hwp']['delta_theta']
+            imr_offset = data['image_rotator']['delta_theta']
+            lp_offset = data['lp']['delta_theta'] 
             hwp_retardances.append(hwp_retardance)
             imr_retardances.append(imr_retardance)
-            #hwp_offsets.append(hwp_offset)
-            #imr_offsets.append(imr_offset)
-            #lp_offsets.append(lp_offset)
+            hwp_offsets.append(hwp_offset)
+            imr_offsets.append(imr_offset)
+            lp_offsets.append(lp_offset)
             lp_epsilons.append(lp_epsilon)
 
     # Find offset averages/errors
 
-    #hwp_offset_error = np.std(hwp_offsets)
-    #imr_offset_error = np.std(imr_offsets)
-    #lp_offset_error = np.std(lp_offsets)
-    #hwp_offset = np.mean(hwp_offsets)
-    #imr_offset = np.mean(imr_offsets)
-    #lp_offset = np.mean(lp_offsets)
+    hwp_offset_error = np.std(hwp_offsets)
+    imr_offset_error = np.std(imr_offsets)
+    lp_offset_error = np.std(lp_offsets)
+    hwp_offset = np.mean(hwp_offsets)
+    imr_offset = np.mean(imr_offsets)
+    lp_offset = np.mean(lp_offsets)
 
     # Replace offset angles with averages
 
-    #hwp_offsets = [hwp_offset] * len(hwp_offsets)
-    #imr_offsets = [imr_offset] * len(imr_offsets)
-    #lp_offsets = [lp_offset] * len(lp_offsets)
+    hwp_offsets = [hwp_offset] * len(hwp_offsets)
+    imr_offsets = [imr_offset] * len(imr_offsets)
+    lp_offsets = [lp_offset] * len(lp_offsets)
 
     # Make errors lists
 
-    #hwp_offset_errors = [hwp_offset_error] * len(hwp_offsets)
-    #imr_offset_errors = [imr_offset_error] * len(imr_offsets)
-    #lp_offset_errors = [lp_offset_error] * len(lp_offsets)
+    hwp_offset_errors = [hwp_offset_error] * len(hwp_offsets)
+    imr_offset_errors = [imr_offset_error] * len(imr_offsets)
+    lp_offset_errors = [lp_offset_error] * len(lp_offsets)
 
     # Fill DataFrame
 
     df['wavelength_bin'], df['hwp_retardance'], df['imr_retardance'], \
-        df['calibration_polarizer_diattenuation'] = \
-        (wavelength_bins, hwp_retardances, imr_retardances, lp_epsilons)   
+    df['calibration_polarizer_diattenuation'], df['hwp_offset'],df['hwp_offset_std'], \
+    df['imr_offset'], df['imr_offset_std'], df['cal_offset'], df['cal_offset_std'] = \
+        (wavelength_bins, hwp_retardances, imr_retardances, lp_epsilons, hwp_offsets , hwp_offset_errors, imr_offsets,
+         imr_offset_errors, lp_offsets, lp_offset_errors)   
     
     # Save to CSV if specified
 
