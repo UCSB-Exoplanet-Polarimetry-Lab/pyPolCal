@@ -35,7 +35,7 @@ def parse_array_string(x):
     return np.nan  # If neither, return NaN
 
 # TODO: Test the MBI function
-def read_csv(file_path, obs_mode="IPOL", obs_filter=None):
+def read_csv_jax(file_path, obs_mode="IPOL", obs_filter=None):
     # Read CSV file
     df = pd.read_csv(file_path)
     
@@ -282,7 +282,7 @@ def run_mcmc(
     if not resume or backend.iteration == 0:
         backend.reset(nwalkers, ndim)
 
-    pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
+    pos = p0_values + 1e-4 * np.random.randn(nwalkers, ndim)
 
     args = (
         system_mm, dataset, errors, configuration_list, p_keys, s_in,

@@ -1,5 +1,5 @@
 import numpy as np
-
+import jax.numpy as jnp
 def unflatten_p(params, keys):
     out = {}
     for (comp, param), val in zip(keys, params):
@@ -11,14 +11,22 @@ def log_prob(theta, system_mm, dataset, errors, configuration_list,
              prior_dict, bounds_dict, logl_function):
     lp = log_prior(theta, p_keys, prior_dict, bounds_dict)
     if not np.isfinite(lp):
-        return -np.inf
-    return lp + logl_function(
+         print("❌ prior rejected:", theta)
+         return -np.inf
+    logl = logl_function(
         theta, p_keys, system_mm, dataset, errors, configuration_list,
         s_in=s_in,
         process_model=process_model,
         process_dataset=process_dataset,
         process_errors=process_errors
     )
+    if isinstance(logl, (np.ndarray, jnp.ndarray)):
+        logl = float(logl)
+    if not np.isfinite(logl):
+        print("❌ likelihood rejected:", theta)
+        return -np.inf
+    
+    return lp + logl
 
 def log_prior(theta, keys, prior_dict, bounds_dict):
     p_dict = unflatten_p(theta, keys)
