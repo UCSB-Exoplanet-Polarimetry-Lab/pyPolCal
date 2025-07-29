@@ -270,7 +270,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
     print(f"CSV file written to {output_csv_path}")
 
 
-def read_csv(file_path):
+def read_csv(file_path, mode= 'standard'):
     """Takes a CSV file path containing "D_IMRANG", 
     "RET-ANG1", "single_sum", "norm_single_diff", "diff_std", and "sum_std",
     for one wavelength bin and returns interleaved values, standard deviations, 
@@ -280,6 +280,9 @@ def read_csv(file_path):
     -----------
     file_path : str or Path
         Path to the CSV.
+    mode : str, optional
+        If mode == 'physical_model_CHARIS', the wavelengths will be added
+        to the configuration list for physical model fitting.
 
     Returns:
     -----------
@@ -312,17 +315,27 @@ def read_csv(file_path):
         # Extracting values from relevant columns
         hwp_theta = row["RET-ANG1"]
         imr_theta = row["D_IMRANG"]
-
-        # Building dictionary
-        row_data = {
-            "hwp": {"theta": hwp_theta},
-            "image_rotator": {"theta": imr_theta}
-        }
+        if mode == 'physical_model_CHARIS': # add wavelength
+            wavelength = row["wavelength_bin"]
+            # Building dictionary with wavelength
+            wavelength_bin = int(np.where(wavelength_bins==wavelength)[0]) # grabbing bin number
+            row_data = {
+                "hwp": {"theta": hwp_theta, "wavelength_bin": wavelength_bin},
+                "image_rotator": {"theta": imr_theta, "wavelength_bin": wavelength_bin}
+            }
+        else:
+            # Building dictionary
+            row_data = {
+                "hwp": {"theta": hwp_theta},
+                "image_rotator": {"theta": imr_theta}
+            }
 
         # Append two configurations for diff and sum
         configuration_list.append(row_data)
-
-    return interleaved_values, interleaved_stds, configuration_list
+    if mode == 'physical_model_CHARIS':
+        return interleaved_values, interleaved_stds, configuration_list
+    else:
+        return interleaved_values, interleaved_stds, configuration_list
 
 ########################################################################################
 ###### Functions related to defining, updating, and parsing instrument dictionaries ####
@@ -1912,7 +1925,7 @@ def plot_pol_efficiency_from_data(csv_dir, bins, save_path=None, title=None):
      try:
         match = re.search(r'bin(\d+)', f.name)
         if not match:
-            raise ValueError(f"File {f.name} does not match expected naming convention.")
+            raise ValueError(f"File {f.name} does not contain the bin number.")
      except Exception as e:
         raise ValueError(f"Error processing file {f.name}: {e}")
      
