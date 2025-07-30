@@ -11,12 +11,11 @@ import matplotlib.pyplot as plt
 import emcee
 import mcmc_helper_funcs_jax as mcmc
 from multiprocessing import Pool
-import copy
 import os
 from functools import partial
 import jax
 import jax.numpy as jnp
-from jax import jit
+from jax import jit, lax
 
 #######################################################
 ###### Functions related to reading in .csv values ####
@@ -211,7 +210,7 @@ def run_mcmc(
     nwalkers=64, nsteps=10000, pool_processes=None, 
     s_in=np.array([1, 0, 0, 0]), process_dataset=None, 
     process_errors=None, process_model=None, resume=True,
-    include_log_f=False, log_f=-3.0
+    include_log_f=False, log_f=-3.0,plot=False, mode='VAMPIRES'
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
@@ -259,7 +258,10 @@ def run_mcmc(
         If True, appends a `log_f` noise inflation parameter to the parameter list.
     log_f0 : float, optional
         Initial value for `log_f` if `include_log_f` is True.
-
+    plot : bool, optional
+        If True, plots every 100 steps
+    mode : str, optional
+        If 'CHARIS', models norm single differences and single sums
     Returns
     -------
     sampler : emcee.EnsembleSampler
@@ -282,20 +284,62 @@ def run_mcmc(
     if not resume or backend.iteration == 0:
         backend.reset(nwalkers, ndim)
 
-    pos = p0_values + 1e-4 * np.random.randn(nwalkers, ndim)
+    pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
 
-    args = (
-        system_mm, dataset, errors, configuration_list, p_keys, s_in,
-        process_model, process_dataset, process_errors,
-        priors, bounds, logl_with_logf
-    )
+    if mode == 'VAMPIRES':
+         args = (
+            system_mm, dataset, errors, configuration_list, p_keys, s_in,
+            process_model, process_dataset, process_errors, 
+            priors, bounds, logl_with_logf, 'VAMPIRES'
+        )
+    if mode == 'CHARIS':
+        args = (
+            system_mm, dataset, errors, configuration_list, p_keys, s_in,
+            process_model, process_dataset, process_errors, 
+            priors, bounds, logl_with_logf, 'CHARIS'
+        )
 
     with Pool(processes=pool_processes) as pool:
         sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob, 
             args=args, pool=pool, backend=backend)
-        sampler.run_mcmc(pos, nsteps, progress=True)
+        #sampler.run_mcmc(pos, nsteps, progress=True)
+        max_steps = nsteps
+        index = 0
+        autocorr = np.empty(max_steps)
+        old_tau = np.inf
+        if plot == True:
+            plt.ion()
+            fig, axes = plt.subplots(ndim, figsize=(10, 2 * ndim), sharex=True)
+        for sample in sampler.sample(pos, iterations=max_steps, progress=True):
+            if sampler.iteration % 100 != 0:
+                continue
+        
 
+        # Compute the autocorrelation time so far
+            try:
+                tau = sampler.get_autocorr_time(tol=0)
+            except emcee.autocorr.AutocorrError:
+                continue  # Not enough samples yet
+
+            autocorr[index] = np.mean(tau)
+            index += 1
+            if plot == True:
+                chain = sampler.get_chain()[-200:, :, :]
+                for i in range(ndim):
+                    axes[i].cla()
+                    axes[i].plot(chain[:, :, i], alpha=0.5, linewidth=0.5)
+                    axes[i].set_ylabel(f"param {i}")
+                axes[-1].set_xlabel("step")
+                fig.suptitle(f"Iteration {sampler.iteration}")
+                plt.pause(0.01)
+        # Check convergence
+            if sampler.iteration > 100 * np.max(tau):
+                if np.all(np.abs(old_tau - tau) / tau < 0.01):
+                    print(f"Converged at iteration {sampler.iteration}")
+                    break
+            old_tau=tau
     return sampler, p_keys
+
 
 
 # def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_list):
@@ -466,7 +510,7 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
 
 def logl_with_logf(theta, system_mm, dataset, errors, configuration_list, 
                    system_parameters, s_in, process_model, process_dataset, 
-                   process_errors):
+                   process_errors, mode='VAMPIRES'):
     """
     Log-likelihood function that includes a noise inflation parameter log_f.
 
@@ -488,6 +532,9 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
         Input Stokes vector.
     process_model, process_dataset, process_errors : callable
         Optional transformation functions for model, dataset, and errors.
+    mode : str
+        Default mode is VAMPIRES. If mode is CHARIS, the model will
+        output normalized single differences and sums.
 
     Returns
     -------
@@ -498,8 +545,13 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
     theta = theta[:-1]
 
     # Generate model output
-    model_output = model(theta, system_parameters, system_mm, configuration_list,
-                         s_in=s_in, process_model=process_model)
+    if mode == 'VAMPIRES':
+        model_output = model(theta, system_parameters, system_mm, configuration_list,
+                            s_in=s_in, process_model=process_model)
+    if mode == 'CHARIS':
+        model_output = model(theta, system_parameters, system_mm, configuration_list,
+                            s_in=s_in, process_model=None) 
+        model_output = process_model(model_output, mode='CHARIS')
 
     dataset = jnp.array(dataset)
     errors = jnp.array(errors)
@@ -590,40 +642,49 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
         return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
 
 @jit
-def build_differences_and_sums(intensities):
-    '''
-    Assume that the input intensities are organized in pairs. Such that
-    '''
-    # Making sure that intensities is a numpy array
+def build_differences_and_sums(intensities, normalized=False):
     intensities = jnp.array(intensities)
+    differences = (intensities[::2] - intensities[1::2])
+    sums = intensities[::2] + intensities[1::2]
 
-    differences = intensities[::2]-intensities[1::2]
-    sums = intensities[::2]+intensities[1::2]
-
+    # Use lax.cond to avoid TracerBoolConversionError
+    differences = lax.cond(
+        normalized,
+        lambda diffs_and_sums: diffs_and_sums[0] / diffs_and_sums[1],
+        lambda diffs_and_sums: diffs_and_sums[0],
+        (differences, sums)
+    )
     return differences, sums
 
-@jit
-def build_double_differences_and_sums(differences, sums):
-    '''
-    Assume that the input intensities are organized in pairs. Such that
-    '''
-    # Making sure that differences and sums are numpy arrays
-    differences = jnp.array(differences)
-    sums = jnp.array(sums)
-
-    double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
-    double_sums = (differences[::2]+differences[1::2])/(sums[::2]+sums[1::2])
-
-    return double_differences, double_sums
-
-def process_model(model_intensities):
+def process_model(model_intensities, mode= 'VAMPIRES'):
+    """
+    Processes the model intensities to compute differences and sums,
+    and formats them into a single interleaved array. 
+    
+    Parameters
+    ----------
+    model_intensities : list or np.ndarray
+        List or array of model intensities, expected to be in pairs.
+    mode : str, optional
+        Mode of processing, either 'VAMPIRES' or 'CHARIS'. 
+        Default is 'VAMPIRES'. VAMPIRES returns double differences
+        and CHARIS returns single differences."""
+    
+    # Making sure the mode exists
+    if mode not in ['VAMPIRES', 'CHARIS']:
+        raise ValueError("Mode must be either 'VAMPIRES' or 'CHARIS'.")
+    
     # Making sure that model_intensities is a numpy array
+
     model_intensities = np.array(model_intensities)
+
     # print("Entered process_model")
 
-    differences, sums = build_differences_and_sums(model_intensities)
+    
 
-    double_differences, double_sums = build_double_differences_and_sums(differences, sums)
+    if mode == 'VAMPIRES':
+        differences, sums = build_differences_and_sums(model_intensities)
+        double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
     # print("Differences shape: ", np.shape(differences))
     # print("Sums shape: ", np.shape(sums))
@@ -631,10 +692,19 @@ def process_model(model_intensities):
     # print("Double Sums shape: ", np.shape(double_sums))
 
     #Format this into one array. 
-    interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+    if mode == 'VAMPIRES':
+        # Interleave the double differences and double sums
+        interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+         
+        # NOTE: Subtracting same FLC state orders (A - B) as Miles
     
-    # Take the negative of this as was done before 
-    # NOTE: Subtracting same FLC state orders (A - B) as Miles
+    
+    if mode == 'CHARIS':
+        # Interleave the norm single differences and single sums
+        differences, sums = build_differences_and_sums(model_intensities, normalized=True)
+        interleaved_values = np.ravel(np.column_stack((differences, sums)))
+
+    # Take the negative of this as was done before
     interleaved_values = -interleaved_values
 
     return interleaved_values

@@ -27,11 +27,11 @@ def log_prior(theta, keys, prior_dict, bounds_dict):
 
 def log_prob(theta, system_mm, dataset, errors, configuration_list, 
              p_keys, s_in, process_model, process_dataset, process_errors,
-             prior_dict, bounds_dict, logl_function):
+             prior_dict, bounds_dict, logl_function, mode):
     lp = log_prior(theta, p_keys, prior_dict, bounds_dict)
     log_l = logl_function(
         theta, system_mm, dataset, errors, configuration_list,
-        p_keys, s_in, process_model, process_dataset, process_errors
+        p_keys, s_in, process_model, process_dataset, process_errors,mode
     )
     return jnp.where(jnp.isfinite(lp), lp + log_l, -jnp.inf)
 

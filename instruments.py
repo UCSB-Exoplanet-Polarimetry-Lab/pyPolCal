@@ -871,11 +871,12 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
 def logl_CHARIS(p, system_parameters, system_mm, dataset, errors, configuration_list, 
          s_in=None):
     """
-    Compute the log-likelihood of a model given a dataset and system configuration.
-
     This function evaluates how well a set of system Mueller matrix parameters
     (given by `p`) reproduce the observed dataset, using a chi-squared-based 
-    likelihood metric.
+    likelihood metric. Note: this function isn't currently a logl as of now 
+    it returns residuals for use in scipy least squares.
+
+
     Parameters
     ----------
     p : list of float
