@@ -1729,7 +1729,7 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
            ax.plot(d["hwp_theta"], d["model"], '-', color=color)
         ax.set_xlabel(r"HWP $\theta$ (deg)")
         ax.set_ylabel("Single Difference")
-        ax.legend(title=r"IMR $\theta$")
+        ax.legend(title=r"IMR $\theta$", fontsize=10)
         ax.grid()
 
     # Set a suptitle if wavelength is provided
@@ -2317,7 +2317,124 @@ def model_data(json_dir, csv_path=None):
     
     return df
     
+def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model, 
+    configuration_list, hwp_theta_filter=None, wavelength=None, save_path = None,title=None):
+    """
+    Plots single differences vs imr angle for some amount of HWP angles. Similar to figure 6 in
+    Joost t Hart 2021.
 
+    Parameters
+    ----------
+    interleaved_values : np.ndarray
+        Interleaved array of observed double difference and double sum values.
+        Expected format: [dd1, ds1, dd2, ds2, ...]. In CHARIS mode use
+        single differences and sums.
+
+    interleaved_stds : np.ndarray
+        Interleaved array of standard deviations corresponding to the observed values.
+
+    model : np.ndarray
+        Interleaved array of model-predicted double difference and double sum values.
+        If charis use single differences and sums. 
+
+    configuration_list : list of dict
+        List of system configurations (one for each measurement), where each dictionary 
+        contains component settings like HWP and image rotator angles.
+
+    hwp_theta_filter : float, optional
+        If provided, only measurements with this hwp angle will be plotted.
+
+    wavelength : str or int, optional
+        Wavelength (e.g., 670 or "670") to display as a centered title with "nm" units 
+        (e.g., "670nm").
+    title: str, optional
+        Optional title
+
+    Returns
+    -------
+    fig, ax, small_ax
+    """
+    # Calculate double differences and sums from interleaved single differences if in VAMPIRES mode 
+    
+
+    # Extract double differences and double sums
+    dd_values = interleaved_values[::2]
+    ds_values = interleaved_values[1::2]
+    dd_stds = interleaved_stds[::2]
+    ds_stds = interleaved_stds[1::2]
+    dd_model = model[::2]
+    ds_model = model[1::2]
+
+    # Group by hwp theta
+    dd_by_theta = {}
+    ds_by_theta = {}
+   
+    
+    for i, config in enumerate(configuration_list):
+        imr_theta = config["image_rotator"]["theta"]
+        hwp_theta = config["hwp"]["theta"]
+
+        if hwp_theta_filter is not None and not np.any(np.isclose(hwp_theta, hwp_theta_filter, atol=1e-2)):
+         continue
+
+        if hwp_theta not in dd_by_theta:
+            dd_by_theta[hwp_theta] = {"imr_theta": [], "values": [], "stds": [], "model": []}
+        dd_by_theta[hwp_theta]["imr_theta"].append(imr_theta)
+        dd_by_theta[hwp_theta]["values"].append(dd_values[i])
+        dd_by_theta[hwp_theta]["stds"].append(dd_stds[i])
+        dd_by_theta[hwp_theta]["model"].append(dd_model[i])
+
+        if hwp_theta not in ds_by_theta:
+            ds_by_theta[hwp_theta] = {"imr_theta": [], "values": [], "stds": [], "model": []}
+        ds_by_theta[hwp_theta]["imr_theta"].append(imr_theta)
+        ds_by_theta[hwp_theta]["values"].append(ds_values[i])
+        ds_by_theta[hwp_theta]["stds"].append(ds_stds[i])
+        ds_by_theta[hwp_theta]["model"].append(ds_model[i])
+
+   
+    num_plots = 1
+    sizex=10
+    fig, axarr = plt.subplots(
+    2, 1, 
+    figsize=(sizex, 6), 
+    gridspec_kw={"height_ratios": [3, 1]}, 
+    sharex=True
+    )
+
+    ax = axarr[0]
+    small_ax = axarr[1]
+
+    # Double Difference plot
+    
+    for theta, d in dd_by_theta.items():
+        err = ax.errorbar(d["imr_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
+        color = err[0].get_color()
+        ax.plot(d["imr_theta"], d["model"], '-', color=color)
+        residuals =  np.array(d["values"]) - np.array(d["model"])
+        small_ax.scatter(d['imr_theta'],residuals,color=color)
+    small_ax.axhline(0, color='black', linewidth=1)
+    small_ax.set_xlabel(r"IMR $\theta$ (deg)")
+    small_ax.set_ylabel("Residual", fontsize = 10)
+    ax.set_ylabel("Single Difference")
+    ax.legend(title=r"HWP $\theta$", fontsize=10, loc='upper right')
+    ax.grid()
+
+    # Set a suptitle if wavelength is provided
+    if wavelength is not None and title is None:
+        fig.suptitle(f"{wavelength}nm")
+        ax.xaxis.set_major_locator(MultipleLocator(10))    
+        ax.xaxis.set_minor_locator(MultipleLocator(1)) 
+    plt.tight_layout(rect=[0, 0, 1, 0.95])  #
+
+    if title:
+        fig.suptitle(title)
+
+    if save_path != None:
+        plt.savefig(save_path,dpi=600, bbox_inches='tight')
+
+    plt.show()
+
+    return fig, ax,small_ax
 
     
 
