@@ -495,7 +495,6 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
         system_mm = update_system_mm(e_beam_values, wollaston_beam_keyword, system_mm)
         s_out_e = generate_measurement(system_mm, s_in)
         e_intensity = s_out_e[0]
-
         output_intensities.append(o_intensity)
         output_intensities.append(e_intensity)
 
@@ -552,7 +551,9 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
         model_output = model(theta, system_parameters, system_mm, configuration_list,
                             s_in=s_in, process_model=None) 
         model_output = process_model(model_output, mode='CHARIS')
-
+    if mode == 'CHARIS':
+        dataset = dataset[::2]
+        errors=errors[::2]
     dataset = jnp.array(dataset)
     errors = jnp.array(errors)
 
@@ -642,19 +643,16 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
         return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
 
 @jit
-def build_differences_and_sums(intensities, normalized=False):
+def build_differences_and_sums(intensities):
     intensities = jnp.array(intensities)
     differences = (intensities[::2] - intensities[1::2])
     sums = intensities[::2] + intensities[1::2]
 
-    # Use lax.cond to avoid TracerBoolConversionError
-    differences = lax.cond(
-        normalized,
-        lambda diffs_and_sums: diffs_and_sums[0] / diffs_and_sums[1],
-        lambda diffs_and_sums: diffs_and_sums[0],
-        (differences, sums)
-    )
     return differences, sums
+@jit
+def normalize_diffs(differences,sums):
+    diffs=differences/sums
+    return diffs,sums
 
 def process_model(model_intensities, mode= 'VAMPIRES'):
     """
@@ -701,8 +699,11 @@ def process_model(model_intensities, mode= 'VAMPIRES'):
     
     if mode == 'CHARIS':
         # Interleave the norm single differences and single sums
-        differences, sums = build_differences_and_sums(model_intensities, normalized=True)
-        interleaved_values = np.ravel(np.column_stack((differences, sums)))
+        differences, sums = build_differences_and_sums(model_intensities)
+        normdiffs, sums = normalize_diffs(differences,sums)
+        interleaved_values = np.ravel(np.column_stack((normdiffs, sums)))
+        # as of 7/30 we're just going to use differences
+        interleaved_values = interleaved_values[::2]
 
     # Take the negative of this as was done before
     interleaved_values = -interleaved_values

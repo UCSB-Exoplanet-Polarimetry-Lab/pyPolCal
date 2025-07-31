@@ -442,26 +442,137 @@ def generate_measurement(system_mm, s_in = np.array([1, 0, 0, 0])):
     output_stokes = system_mm.evaluate() @ s_in
     return output_stokes
 
+def read_csv_physical_model_all_bins(csv_dir):
+    """Does the same thing as read_csv() but reads all 22 csvs written
+    in a directory for all 22 CHARIS wavelength bins and puts everything into one array.
+    Also adds wavelength bin to the configuration dictionary for use with custom
+    pyMuellerMat common mm functions. 
+    Parameters:
+    -----------
+    csv_dir : Path or str
+        The directory where the csv files are stored. Will check for bins in the title
+        and for 22 files.
+
+    Returns:
+    -----------
+    interleaved_values_all : list
+        A list of interleaved values for all wavelength bins.
+    interleaved_stds_all : list
+        A list of interleaved standard deviations for all interleaved values.
+    configuration_list_all : list
+        A list of configuration dictionaries.
+    """
+    # Check if the directory exists
+    csv_dir = Path(csv_dir)
+    if not csv_dir.is_dir():
+        raise FileNotFoundError(f"The directory {csv_dir} does not exist.")
+        # Load csvs
+
+    csv_files = sorted(csv_dir.glob("*.csv"))
+
+    # Check for bins and sort files
+ 
+    for f in csv_files:
+     try:
+        match = re.search(r'bin(\d+)', f.name)
+        if not match:
+            raise ValueError(f"File {f.name} does not contain the bin number.")
+     except Exception as e:
+        raise ValueError(f"Error processing file {f.name}: {e}")
+    sorted_files = sorted(csv_files, key=lambda f: int(re.search(r'bin(\d+)', f.name).group(1)))
+    if len(sorted_files) != 22:
+        raise ValueError("Expected 22 CSV files for all wavelength bins, but found {}".format(len(sorted_files)))
+    
+    interleaved_values_all = []
+    interleaved_stds_all = []
+    configuration_list_all = []
+    for file in sorted_files:
+        interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='physical_model_CHARIS')
+        interleaved_values_all = np.append(interleaved_values_all, interleaved_values)
+        interleaved_stds_all = np.append(interleaved_stds_all, interleaved_stds)
+        configuration_list_all.extend(configuration_list)
+
+    return interleaved_values_all, interleaved_stds_all, configuration_list_all
+
+
+    
 #######################################################
 ###### Functions for MCMC #############################
 #######################################################
 
-# Main MCMC function
 def run_mcmc(
     p0_dict, system_mm, dataset, errors, configuration_list,
     priors, bounds, logl_function, output_h5_file,
     nwalkers=64, nsteps=10000, pool_processes=None, 
     s_in=np.array([1, 0, 0, 0]), process_dataset=None, 
-    process_errors=None, process_model=None, resume=True
+    process_errors=None, process_model=None, resume=True,
+    include_log_f=False, log_f=-3.0,plot=False, mode='VAMPIRES'
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
+
+    This function supports standard system Mueller matrix fitting as well as
+    extended likelihoods that include a noise-scaling term (`log_f`) in the model.
+
+    Parameters
+    ----------
+    p0_dict : dict
+        Nested dictionary of initial parameter guesses structured by component.
+    system_mm : SystemMuellerMatrix
+        The optical system's Mueller matrix object.
+    dataset : np.ndarray
+        Observed data values (interleaved double differences and sums).
+    errors : np.ndarray
+        Standard deviations associated with each element of `dataset`.
+    configuration_list : list of dict
+        List of per-measurement configurations (e.g., HWP/FLC angles).
+    priors : dict
+        Dictionary mapping parameter names to prior functions.
+    bounds : dict
+        Dictionary of (low, high) tuples for each parameter.
+    logl_function : callable
+        Log-likelihood function to evaluate model fit.
+    output_h5_file : str
+        Path to the output HDF5 file used to store MCMC results.
+    nwalkers : int, optional
+        Number of walkers (default is max of 2x parameters or process-scaled).
+    nsteps : int, optional
+        Number of steps for each walker.
+    pool_processes : int, optional
+        Number of parallel processes to use.
+    s_in : np.ndarray, optional
+        Input Stokes vector for the system (default: [1, 0, 0, 0]).
+    process_dataset : callable, optional
+        Function to process the dataset before likelihood comparison.
+    process_errors : callable, optional
+        Function to process errors in the same way as the dataset.
+    process_model : callable, optional
+        Function to process model outputs before likelihood comparison.
+    resume : bool, optional
+        If True and the HDF5 file exists, resume from saved state.
+    include_log_f : bool, optional
+        If True, appends a `log_f` noise inflation parameter to the parameter list.
+    log_f0 : float, optional
+        Initial value for `log_f` if `include_log_f` is True.
+    plot : bool, optional
+        If True, plots every 100 steps
+    mode : str, optional
+        If 'CHARIS', models norm single differences and single sums
+    Returns
+    -------
+    sampler : emcee.EnsembleSampler
+        The sampler object containing the MCMC chain.
+    p_keys : list of tuple
+        List of (component, parameter) key pairs used for tracking parameters.
     """
 
-    p0_values, p_keys = parse_configuration(p0_dict)
-    ndim = len(p0_values)
 
-    log_prior = mcmc.log_prior
+    p0_values, p_keys = parse_configuration(p0_dict)
+
+    if include_log_f:
+        p0_values = p0_values + [log_f]             
+
+    ndim = len(p0_values)
 
     resume = os.path.exists(output_h5_file)
     backend = emcee.backends.HDFBackend(output_h5_file)
@@ -471,19 +582,110 @@ def run_mcmc(
 
     pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
 
-    args = (
-        system_mm, dataset, errors, configuration_list, p_keys, s_in,
-        process_model, process_dataset, process_errors,
-        priors, bounds, logl_function
-    )
+    if mode == 'VAMPIRES':
+         args = (
+            system_mm, dataset, errors, configuration_list, p_keys, s_in,
+            process_model, process_dataset, process_errors, 
+            priors, bounds, logl_with_logf, 'VAMPIRES'
+        )
+    if mode == 'CHARIS':
+        args = (
+            system_mm, dataset, errors, configuration_list, p_keys, s_in,
+            process_model, process_dataset, process_errors, 
+            priors, bounds, logl_with_logf, 'CHARIS'
+        )
 
     with Pool(processes=pool_processes) as pool:
         sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob, 
             args=args, pool=pool, backend=backend)
-        sampler.run_mcmc(pos, nsteps, progress=True)
+        #sampler.run_mcmc(pos, nsteps, progress=True)
+        max_steps = nsteps
+        index = 0
+        autocorr = np.empty(max_steps)
+        old_tau = np.inf
+        if plot == True:
+            plt.ion()
+            fig, axes = plt.subplots(ndim, figsize=(10, 2 * ndim), sharex=True)
+        for sample in sampler.sample(pos, iterations=max_steps, progress=True):
+            if sampler.iteration % 100 != 0:
+                continue
+        
 
+        # Compute the autocorrelation time so far
+            try:
+                tau = sampler.get_autocorr_time(tol=0)
+            except emcee.autocorr.AutocorrError:
+                continue  # Not enough samples yet
+
+            autocorr[index] = np.mean(tau)
+            index += 1
+            if plot == True:
+                chain = sampler.get_chain()[-200:, :, :]
+                for i in range(ndim):
+                    axes[i].cla()
+                    axes[i].plot(chain[:, :, i], alpha=0.5, linewidth=0.5)
+                    axes[i].set_ylabel(f"param {i}")
+                axes[-1].set_xlabel("step")
+                fig.suptitle(f"Iteration {sampler.iteration}")
+                plt.pause(0.01)
+        # Check convergence
+            if sampler.iteration > 100 * np.max(tau):
+                if np.all(np.abs(old_tau - tau) / tau < 0.01):
+                    print(f"Converged at iteration {sampler.iteration}")
+                    break
+            old_tau=tau
     return sampler, p_keys
 
+
+def summarize_median_posterior(h5_path, p0_dict, step_range=(0, None)):
+    """
+    Summarizes the median and 1 sigma credible interval (16th-84th percentile) 
+    for each parameter in an MCMC run stored in an emcee HDF5 backend file.
+
+    Parameters
+    ----------
+    h5_path : str or Path
+        Path to the emcee HDF5 backend file.
+    p0_dict : dict
+        Initial parameter dictionary structured as nested component: {param: val}.
+    step_range : tuple
+        Optional (start, stop) tuple to slice the chain steps.
+
+    Returns
+    -------
+    dict
+        Dictionary of median and 1 sigma intervals for each parameter.
+    """
+    h5_path = Path(h5_path)
+    reader = emcee.backends.HDFBackend(h5_path)
+    chain = reader.get_chain()
+
+    # Flatten the chain over walkers
+    flat_chain = chain[step_range[0]:step_range[1], :, :].reshape(-1, chain.shape[-1])
+
+    # Extract parameter keys
+    _, param_keys = parse_configuration(p0_dict)
+
+    summary = {}
+
+    print("Posterior Medians and 1 sigma Credible Intervals:")
+    for i, comp in enumerate(param_keys):
+        samples = flat_chain[:, i]
+        median = np.median(samples)
+        lower = np.percentile(samples, 16)
+        upper = np.percentile(samples, 84)
+        err_low = median - lower
+        err_high = upper - median
+        component = comp[0]
+        key = comp[1]
+        summary[key] = {
+            "median": median,
+            "-1sigma": err_low,
+            "+1sigma": err_high
+        }
+        print(f"{component},{key}: {median:.5f} (+{err_high:.5f}/-{err_low:.5f})")
+
+    return summary
 
 # def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_list):
 #     '''
