@@ -1421,13 +1421,15 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     ----------
     interleaved_values : np.ndarray
         Interleaved array of observed double difference and double sum values.
-        Expected format: [dd1, ds1, dd2, ds2, ...].
+        Expected format: [dd1, ds1, dd2, ds2, ...]. In CHARIS mode use
+        single differences and sums.
 
     interleaved_stds : np.ndarray
         Interleaved array of standard deviations corresponding to the observed values.
 
     model : np.ndarray
         Interleaved array of model-predicted double difference and double sum values.
+        If charis use single differences and sums. 
 
     configuration_list : list of dict
         List of system configurations (one for each measurement), where each dictionary 
@@ -1440,12 +1442,12 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     wavelength : str or int, optional
         Wavelength (e.g., 670 or "670") to display as a centered title with "nm" units 
         (e.g., "670nm").
+    mode : str
+        Default is VAMPIRES. If mode is CHARIS normalized single differences will be used.
 
     Returns
     -------
-    None
-        Displays two subplots: one for double differences and one for double sums,
-        including error bars and model curves.
+    fig, ax
     """
     # Calculate double differences and sums from interleaved single differences if in VAMPIRES mode 
     if mode =='VAMPIRES':
@@ -1505,39 +1507,40 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
            err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
            color = err[0].get_color()
            ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-        ax.set_xlabel("HWP θ (deg)")
+        ax.set_xlabel(r"HWP $\theta$ (deg)")
         ax.set_ylabel("Double Difference")
-        ax.legend(title="IMR θ")
+        ax.legend(title=r"IMR $\theta$")
     # Double Sum plot
         ax = axes[1]
         for theta, d in ds_by_theta.items():
             err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
             color = err[0].get_color()
             ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-        ax.set_xlabel("HWP θ (deg)")
+        ax.set_xlabel(r"HWP $\theta$  (deg)")
         ax.set_ylabel("Double Sum")
-        ax.legend(title="IMR θ")
+        ax.legend(title=r"IMR $\theta$")
     elif mode == 'CHARIS':
         ax = axes
         for theta, d in dd_by_theta.items():
            err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
            color = err[0].get_color()
            ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-        ax.set_xlabel("HWP θ (deg)")
+        ax.set_xlabel(r"HWP $\theta$ (deg)")
         ax.set_ylabel("Single Difference")
-        ax.legend(title="IMR θ")
+        ax.legend(title=r"IMR $\theta$")
         ax.grid()
 
     # Set a suptitle if wavelength is provided
     if wavelength is not None:
-        fig.suptitle(f"{wavelength}nm", fontsize=14)
+        fig.suptitle(f"{wavelength}nm")
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for suptitle
 
     if save_path != None:
-        plt.savefig(save_path)
+        plt.savefig(save_path,dpi=600, bbox_inches='tight')
 
     plt.show()
+    return fig, ax
 
 def plot_fluxes(csv_path, plot_save_path=None):
     """Plot left and right beam fluxes as a function of the HWP angle for one 
