@@ -137,7 +137,7 @@ def HWP_retardance(wavelengths, w_SiO2=1.623, w_MgF2=1.268):
     '''
 
     # Converting input wavelength from nm to um
-    wavelengths = wavelengths / 10 ** 3
+    wavelengths = np.atleast_1d(wavelengths) / 10 ** 3
 
     # Converting input widths from mm to um
     w_SiO2 = w_SiO2 * 10 ** 3
@@ -172,7 +172,7 @@ def IMR_retardance(wavelengths, d=262.56):
     """
 
     # Converting input wavelength from nm to um
-    wavelengths = wavelengths / 10.0 ** 3
+    wavelengths = np.atleast_1d(wavelengths) / 10.0 ** 3
     d = d / 10.0 ** 3
 
     retardance_list = []
