@@ -318,10 +318,9 @@ def read_csv(file_path, mode= 'standard'):
         if mode == 'physical_model_CHARIS': # add wavelength
             wavelength = row["wavelength_bin"]
             # Building dictionary with wavelength
-            wavelength_bin = int(np.where(wavelength_bins==wavelength)[0]) # grabbing bin number
             row_data = {
-                "hwp": {"theta": hwp_theta, "wavelength_bin": wavelength_bin},
-                "image_rotator": {"theta": imr_theta, "wavelength_bin": wavelength_bin}
+                "hwp": {"theta": hwp_theta, "wavelength": wavelength},
+                "image_rotator": {"theta": imr_theta, "wavelength": wavelength}
             }
         else:
             # Building dictionary
@@ -1314,9 +1313,8 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     
     Returns
     -------
-    None
-        The function saves the updated system dictionary to a JSON file 
-        and optionally saves a plot of the observed vs modeled data.
+    error : np.array
+      An array of the errors for each parameter. 
     """
     # Check file paths
     filepath = Path(csv_path)
@@ -1464,6 +1462,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     with open (new_config_dict_path, 'w') as f:
         json.dump(p0, f, indent=4)
+    error = np.array(error)
     return error
 
 
@@ -1692,15 +1691,20 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         ds_by_theta[imr_theta]["values"].append(ds_values[i])
         ds_by_theta[imr_theta]["stds"].append(ds_stds[i])
         ds_by_theta[imr_theta]["model"].append(ds_model[i])
-
     # Create the plots
     if mode == 'VAMPIRES':
         num_plots = 2
-        sizex= 14
+        fig, axes = plt.subplots(1, num_plots, figsize=(14, 6), sharex=True)
+
     elif mode == 'CHARIS':
-        num_plots = 1
-        sizex=10
-    fig, axes = plt.subplots(1, num_plots, figsize=(sizex, 6), sharex=True)
+        fig, axarr = plt.subplots(
+        2, 1, 
+        figsize=(10, 6), 
+        gridspec_kw={"height_ratios": [3, 1]}, 
+        sharex=True
+        )
+        ax = axarr[0]
+        small_ax = axarr[1]
 
     # Double Difference plot
     if mode == 'VAMPIRES':
@@ -1722,12 +1726,15 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         ax.set_ylabel("Double Sum")
         ax.legend(title=r"IMR $\theta$")
     elif mode == 'CHARIS':
-        ax = axes
         for theta, d in dd_by_theta.items():
            err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
            color = err[0].get_color()
            ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-        ax.set_xlabel(r"HWP $\theta$ (deg)")
+           residuals =  (np.array(d["values"]) - np.array(d["model"]))/np.array(d["values"])
+           small_ax.scatter(d['hwp_theta'],residuals,color=color)
+        small_ax.axhline(0, color='black', linewidth=1)
+        small_ax.set_xlabel(r"HWP $\theta$ (deg)")
+        small_ax.set_ylabel("Residual (%)", fontsize = 10)
         ax.set_ylabel("Single Difference")
         ax.legend(title=r"IMR $\theta$", fontsize=10)
         ax.grid()
@@ -2410,11 +2417,11 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
         err = ax.errorbar(d["imr_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
         color = err[0].get_color()
         ax.plot(d["imr_theta"], d["model"], '-', color=color)
-        residuals =  np.array(d["values"]) - np.array(d["model"])
+        residuals =  (np.array(d["values"]) - np.array(d["model"]))/np.array(d["values"])
         small_ax.scatter(d['imr_theta'],residuals,color=color)
     small_ax.axhline(0, color='black', linewidth=1)
     small_ax.set_xlabel(r"IMR $\theta$ (deg)")
-    small_ax.set_ylabel("Residual", fontsize = 10)
+    small_ax.set_ylabel("Residual (%)", fontsize = 10)
     ax.set_ylabel("Single Difference")
     ax.legend(title=r"HWP $\theta$", fontsize=10, loc='upper right')
     ax.grid()
