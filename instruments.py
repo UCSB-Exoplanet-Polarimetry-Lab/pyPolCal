@@ -21,7 +21,7 @@ from multiprocessing import Pool
 import copy
 import os
 from functools import partial
-from CHARIS.physical_models import HWP_retardance, IMR_retardance
+from pyMuellerMat.physical_models.charis_physical_models import HWP_retardance, IMR_retardance
 import json
 from scipy.optimize import least_squares
 
@@ -1730,11 +1730,11 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
            err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
            color = err[0].get_color()
            ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-           residuals =  (np.array(d["values"]) - np.array(d["model"]))/np.array(d["values"])
+           residuals =  ((np.array(d["values"]) - np.array(d["model"])))*100
            small_ax.scatter(d['hwp_theta'],residuals,color=color)
         small_ax.axhline(0, color='black', linewidth=1)
         small_ax.set_xlabel(r"HWP $\theta$ (deg)")
-        small_ax.set_ylabel("Residual (%)", fontsize = 10)
+        small_ax.set_ylabel(r"Residual ($\%$)", fontsize = 10)
         ax.set_ylabel("Single Difference")
         ax.legend(title=r"IMR $\theta$", fontsize=10)
         ax.grid()
@@ -2413,15 +2413,23 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
 
     # Double Difference plot
     
-    for theta, d in dd_by_theta.items():
-        err = ax.errorbar(d["imr_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
-        color = err[0].get_color()
+    for idx, (theta, d) in enumerate(dd_by_theta.items()):
+        hart_cmap = ['cornflowerblue','paleturquoise','orange','red']
+        color=hart_cmap[idx]
+        err = ax.errorbar(d["imr_theta"], d["values"], color=color,yerr=d["stds"], fmt='o', label=f"{theta}°")
+        #color = err[0].get_color
         ax.plot(d["imr_theta"], d["model"], '-', color=color)
-        residuals =  (np.array(d["values"]) - np.array(d["model"]))/np.array(d["values"])
+        residuals =  (np.array(d["values"]) - np.array(d["model"]))*100
         small_ax.scatter(d['imr_theta'],residuals,color=color)
     small_ax.axhline(0, color='black', linewidth=1)
+    small_ax.grid(which='major', axis='y', linestyle='-', linewidth=0.5, color='black')
+    small_ax.grid(which='minor',axis='y', linestyle='-', linewidth=0.3, color='gray')
     small_ax.set_xlabel(r"IMR $\theta$ (deg)")
-    small_ax.set_ylabel("Residual (%)", fontsize = 10)
+    small_ax.set_ylabel(r"Residual ($\%$)", fontsize = 10)
+    #small_ax.yaxis.set_minor_locator(MultipleLocator(1))
+    small_ax.xaxis.set_major_locator(MultipleLocator(10))
+    small_ax.grid(which='major', axis='x', linestyle='-', linewidth=0.5, color='gray')
+    small_ax.tick_params(axis='y', which='minor', labelleft=False)
     ax.set_ylabel("Single Difference")
     ax.legend(title=r"HWP $\theta$", fontsize=10, loc='upper right')
     ax.grid()
@@ -2439,7 +2447,6 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
     if save_path != None:
         plt.savefig(save_path,dpi=600, bbox_inches='tight')
 
-    plt.show()
 
     return fig, ax,small_ax
 
