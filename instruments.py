@@ -281,7 +281,7 @@ def read_csv(file_path, mode= 'standard'):
     file_path : str or Path
         Path to the CSV.
     mode : str, optional
-        If mode == 'physical_model_CHARIS', the wavelengths will be added
+        If mode = 'physical_model_CHARIS', the wavelengths will be added
         to the configuration list for physical model fitting.
 
     Returns:
@@ -1288,10 +1288,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     of each updated model vs the data. Initial guesses for all fits are from Joost t Hart 2021.
     Note that following the most recent model update these guesses should be updated.
     The csv containing the calibration data and relevant headers can be obtained by 
-    the write_fits_info_to_csv function in instruments.py. This code currently fits for
-    derotator retardance/offset, HWP retardance/offset, and calibration polarizer offset.
-    It can be modified relatively easily to fit for other parameters as well. CURRENT 
-    PARAMETERS: IMR retardance, HWP retardance, calibration polarizer diattenuation.
+    the write_fits_info_to_csv function in instruments.py. This code is always being modified to fit
+    different things. What is being fitted for can be found in the p0 dictionary in the code.
+    It can be modified relatively easily to fit for other parameters as well. 
 
     Parameters
     ----------
@@ -1339,7 +1338,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
     hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
-    epsilon_cal = 0.98
+    epsilon_cal = 1
 
     # Define instrument configuration as system dictionary
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
@@ -2425,6 +2424,8 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
     small_ax.grid(which='major', axis='y', linestyle='-', linewidth=0.5, color='black')
     small_ax.grid(which='minor',axis='y', linestyle='-', linewidth=0.3, color='gray')
     small_ax.set_xlabel(r"IMR $\theta$ (deg)")
+    small_ax.set_xlim(0,180)
+    ax.invert_yaxis()
     small_ax.set_ylabel(r"Residual ($\%$)", fontsize = 10)
     #small_ax.yaxis.set_minor_locator(MultipleLocator(1))
     small_ax.xaxis.set_major_locator(MultipleLocator(10))
