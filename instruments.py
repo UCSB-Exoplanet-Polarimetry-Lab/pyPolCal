@@ -748,7 +748,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
             args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
                 s_in, logl_function, process_dataset, process_errors, process_model), 
                 method='Nelder-Mead', bounds = bounds)
-        errors=[0]
+        
 
     elif mode == 'CHARIS':
         lower_bounds = [bound[0] for bound in bounds]
@@ -777,9 +777,9 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
             process_model = process_model)
     if mode == 'CHARIS':
         logl_value = -result.cost
-        return result, logl_value, errors
-    else:
         return result, logl_value,errors
+    else:
+        return result, logl_value
 
 def parse_configuration(configuration):
     '''
@@ -1359,7 +1359,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
                 },
                 "pickoff" : {
                     "type" : "general_retarder_function",
-                    "properties" : {"phi": 0.3, "delta_theta": 0},
+                    "properties" : {"phi": 0.3, "delta_theta": 0.00168},
                     "tag": "internal",
                 },                
                 "image_rotator" : {
@@ -1422,7 +1422,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
         if iteration > 1:
             previous_logl = new_logl
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, bounds = [dichroic_phi_bounds],mode='VAMPIRES')
+            interleaved_stds, configuration_list, bounds = [dichroic_phi_bounds],mode='CHARIS')
         print(result)
 
         # Update p0 with new values
