@@ -34,6 +34,7 @@ wavelength_bins = np.array([1159.5614, 1199.6971, 1241.2219, 1284.184 , 1328.633
 1422.2002, 1471.4264, 1522.3565, 1575.0495, 1629.5663, 1685.9701,
 1744.3261, 1804.7021, 1867.1678, 1931.7956, 1998.6603, 2067.8395,
 2139.4131, 2213.4641, 2290.0781, 2369.3441])
+# MODIFIED FOR HART DATA
 def single_sum_and_diff(fits_cube_path, wavelength_bin):
     """Calculate normalized single difference and sum between left and right beam 
     rectangular aperture photometry from a CHARIS fits cube. Add L/R counts and stds to array.
@@ -92,7 +93,7 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
     # define rectangular apertures for left and right beams
     # note- these values are based on rough analysis and may need adjustment for high precision
 
-    centroid_lbeam = [71.75, 86.25] 
+    centroid_lbeam = [71.75, 86.25]
     centroid_rbeam = [131.5, 116.25]
     aperture_width = 44.47634202584561
     aperture_height = 112.3750880855165
@@ -1746,7 +1747,7 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
            small_ax.scatter(d['hwp_theta'],residuals,color=color)
         small_ax.axhline(0, color='black', linewidth=1)
         small_ax.set_xlabel(r"HWP $\theta$ (deg)")
-        small_ax.set_ylabel(r"Residual ($\%$)", fontsize = 10)
+        small_ax.set_ylabel(r"Residual ($\%$)", fontsize = 15)
         ax.set_ylabel("Single Difference")
         ax.legend(title=r"IMR $\theta$", fontsize=10)
         ax.grid()
@@ -2441,7 +2442,7 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
     small_ax.set_xlabel(r"IMR $\theta$ (deg)")
     #small_ax.set_xlim(0,180)
     #ax.invert_yaxis()
-    small_ax.set_ylabel(r"Residual ($\%$)", fontsize = 10)
+    small_ax.set_ylabel(r"Residual ($\%$)", fontsize = 15)
     #small_ax.yaxis.set_minor_locator(MultipleLocator(1))
     small_ax.xaxis.set_major_locator(MultipleLocator(10))
     small_ax.grid(which='major', axis='x', linestyle='-', linewidth=0.5, color='gray')
