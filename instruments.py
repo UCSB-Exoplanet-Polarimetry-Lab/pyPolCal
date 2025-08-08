@@ -21,7 +21,7 @@ from multiprocessing import Pool
 import copy
 import os
 from functools import partial
-from CHARIS.physical_models import HWP_retardance, IMR_retardance
+from pyMuellerMat.physical_models.charis_physical_models import HWP_retardance, IMR_retardance
 import json
 from scipy.optimize import least_squares
 
@@ -281,7 +281,7 @@ def read_csv(file_path, mode= 'standard'):
     file_path : str or Path
         Path to the CSV.
     mode : str, optional
-        If mode == 'physical_model_CHARIS', the wavelengths will be added
+        If mode = 'physical_model_CHARIS', the wavelengths will be added
         to the configuration list for physical model fitting.
 
     Returns:
@@ -748,17 +748,23 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
             args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
                 s_in, logl_function, process_dataset, process_errors, process_model), 
                 method='Nelder-Mead', bounds = bounds)
+        
+
     elif mode == 'CHARIS':
         lower_bounds = [bound[0] for bound in bounds]
         upper_bounds = [bound[1] for bound in bounds]
         result = least_squares(logl_CHARIS, p0_values, 
             args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
-                s_in), method='trf', bounds = (lower_bounds, upper_bounds))
+                s_in), method='dogbox', bounds = (lower_bounds, upper_bounds),verbose=2)
         J = result.jac
         residual = result.fun
         dof = len(residual) - len(result.x)  # degrees of freedom
         s_res_squared = np.sum(residual**2) / dof
-        cov = s_res_squared * np.linalg.inv(J.T @ J)
+        try:
+            cov = s_res_squared * np.linalg.inv(J.T @ J)
+        except np.linalg.LinAlgError:
+            print("Warning: Jacobian is singular — using pseudo-inverse instead.")
+            cov = s_res_squared * np.linalg.pinv(J.T @ J)
         errors = np.sqrt(np.diag(cov))
                     
             
@@ -771,7 +777,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
             process_model = process_model)
     if mode == 'CHARIS':
         logl_value = -result.cost
-        return result, logl_value, errors
+        return result, logl_value,errors
     else:
         return result, logl_value
 
@@ -1288,10 +1294,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     of each updated model vs the data. Initial guesses for all fits are from Joost t Hart 2021.
     Note that following the most recent model update these guesses should be updated.
     The csv containing the calibration data and relevant headers can be obtained by 
-    the write_fits_info_to_csv function in instruments.py. This code currently fits for
-    derotator retardance/offset, HWP retardance/offset, and calibration polarizer offset.
-    It can be modified relatively easily to fit for other parameters as well. CURRENT 
-    PARAMETERS: IMR retardance, HWP retardance, calibration polarizer diattenuation.
+    the write_fits_info_to_csv function in instruments.py. This code is always being modified to fit
+    different things. What is being fitted for can be found in the p0 dictionary in the code.
+    It can be modified relatively easily to fit for other parameters as well. 
 
     Parameters
     ----------
@@ -1332,14 +1337,15 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # Loading in past fits 
 
-    offset_imr = -0.01062 # derotator offset
-    offset_hwp = -0.0022 # HWP offset
-    offset_cal = -0.0315 # calibration polarizer offset
+    offset_imr = 0.12829 # derotator offset
+    offset_hwp = -0.99913 # HWP offset
+    offset_cal = 0.48000 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
-    imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
-    hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
-    epsilon_cal = 0.98
+    imr_phi = IMR_retardance(wavelength_bins,d=259.12583)[wavelength_bin]
+    hwp_phi = HWP_retardance(wavelength_bins,1.64601,1.28542)[wavelength_bin]
+    epsilon_cal = 1
+    offset_pickoff = 0.02
 
     # Define instrument configuration as system dictionary
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
@@ -1351,14 +1357,19 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
                 "properties" : {"beam": 'o'}, 
                 "tag": "internal",
                 },
+                "pickoff" : {
+                    "type" : "general_retarder_function",
+                    "properties" : {"phi": 0.3, "delta_theta": 0.00168},
+                    "tag": "internal",
+                },                
                 "image_rotator" : {
                     "type" : "general_retarder_function",
-                    "properties" : {"phi": 0, "theta": imr_theta, "delta_theta": offset_imr},
+                    "properties" : {"phi": imr_phi, "theta": imr_theta, "delta_theta": offset_imr},
                     "tag": "internal",
                 },
                 "hwp" : {
                     "type" : "general_retarder_function",
-                    "properties" : {"phi": 0, "theta": hwp_theta, "delta_theta": offset_hwp},
+                    "properties" : {"phi": hwp_phi, "theta": hwp_theta, "delta_theta": offset_hwp},
                     "tag": "internal",
                 },
                 "lp" : {  # calibration polarizer for internal calibration source
@@ -1376,12 +1387,8 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     # Modify this if you want to change the parameters
 
     p0 = {
-        "image_rotator" : 
-            {"phi": IMR_retardance(wavelength_bins)[wavelength_bin],  "delta_theta": offset_imr},
-        "hwp" :  
-            {"phi": HWP_retardance(wavelength_bins)[wavelength_bin],  "delta_theta": offset_hwp},
-        "lp" : 
-            {"epsilon": epsilon_cal, "delta_theta": offset_cal }
+        "pickoff" : 
+            {"phi": 0.3},
     }
 
     # Define some bounds
@@ -1398,6 +1405,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     epsilon_cal_bounds = (0.9*epsilon_cal, 1)
     calostd = 0.1 *np.abs(offset_cal)
     offset_cal_bounds = (offset_cal-calostd, offset_cal+calostd)
+    dichroic_phi_bounds = (0,np.pi)
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
     # Modify this if you want to change the parameters
@@ -1414,7 +1422,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
         if iteration > 1:
             previous_logl = new_logl
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, bounds = [imr_phi_bounds,offset_bounds,hwp_phi_bounds,offset_bounds,epsilon_cal_bounds,offset_bounds],mode='CHARIS')
+            interleaved_stds, configuration_list, bounds = [dichroic_phi_bounds],mode='CHARIS')
         print(result)
 
         # Update p0 with new values
@@ -1730,11 +1738,11 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
            err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
            color = err[0].get_color()
            ax.plot(d["hwp_theta"], d["model"], '-', color=color)
-           residuals =  (np.array(d["values"]) - np.array(d["model"]))/np.array(d["values"])
+           residuals =  ((np.array(d["values"]) - np.array(d["model"])))*100
            small_ax.scatter(d['hwp_theta'],residuals,color=color)
         small_ax.axhline(0, color='black', linewidth=1)
         small_ax.set_xlabel(r"HWP $\theta$ (deg)")
-        small_ax.set_ylabel("Residual (%)", fontsize = 10)
+        small_ax.set_ylabel(r"Residual ($\%$)", fontsize = 10)
         ax.set_ylabel("Single Difference")
         ax.legend(title=r"IMR $\theta$", fontsize=10)
         ax.grid()
@@ -2413,15 +2421,25 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
 
     # Double Difference plot
     
-    for theta, d in dd_by_theta.items():
-        err = ax.errorbar(d["imr_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
-        color = err[0].get_color()
+    for idx, (theta, d) in enumerate(dd_by_theta.items()):
+        hart_cmap = ['cornflowerblue','paleturquoise','orange','red']
+        color=hart_cmap[idx]
+        err = ax.errorbar(d["imr_theta"], d["values"], color=color,yerr=d["stds"], fmt='o', label=f"{theta}°")
+        #color = err[0].get_color
         ax.plot(d["imr_theta"], d["model"], '-', color=color)
-        residuals =  (np.array(d["values"]) - np.array(d["model"]))/np.array(d["values"])
+        residuals =  (np.array(d["values"]) - np.array(d["model"]))*100
         small_ax.scatter(d['imr_theta'],residuals,color=color)
     small_ax.axhline(0, color='black', linewidth=1)
+    small_ax.grid(which='major', axis='y', linestyle='-', linewidth=0.5, color='black')
+    small_ax.grid(which='minor',axis='y', linestyle='-', linewidth=0.3, color='gray')
     small_ax.set_xlabel(r"IMR $\theta$ (deg)")
-    small_ax.set_ylabel("Residual (%)", fontsize = 10)
+    #small_ax.set_xlim(0,180)
+    #ax.invert_yaxis()
+    small_ax.set_ylabel(r"Residual ($\%$)", fontsize = 10)
+    #small_ax.yaxis.set_minor_locator(MultipleLocator(1))
+    small_ax.xaxis.set_major_locator(MultipleLocator(10))
+    small_ax.grid(which='major', axis='x', linestyle='-', linewidth=0.5, color='gray')
+    small_ax.tick_params(axis='y', which='minor', labelleft=False)
     ax.set_ylabel("Single Difference")
     ax.legend(title=r"HWP $\theta$", fontsize=10, loc='upper right')
     ax.grid()
@@ -2439,7 +2457,6 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
     if save_path != None:
         plt.savefig(save_path,dpi=600, bbox_inches='tight')
 
-    plt.show()
 
     return fig, ax,small_ax
 
