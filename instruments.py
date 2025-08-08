@@ -1325,9 +1325,10 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     filepath = Path(csv_path)
     if not filepath.exists() or filepath.suffix != ".csv":
         raise ValueError("Please provide a valid .csv file.")
-    plot_path = Path(plot_path)
-    if plot_path.suffix != ".png":
-        raise ValueError("Please provide a valid .png file for plotting.")
+    if plot_path:
+        plot_path = Path(plot_path)
+        if plot_path.suffix != ".png":
+            raise ValueError("Please provide a valid .png file for plotting.")
     if new_config_dict_path.suffix != ".json":
         raise ValueError("Please provide a valid .json file for saving the new system dictionary.")
     new_config_dict_path = Path(new_config_dict_path)
@@ -1337,13 +1338,13 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # Loading in past fits 
 
-    offset_imr = 0.12829 # derotator offset
-    offset_hwp = -0.99913 # HWP offset
-    offset_cal = 0.48000 # calibration polarizer offset
+    offset_imr = 0.13214 # derotator offset
+    offset_hwp = -0.99287 # HWP offset
+    offset_cal = 0.49797 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
-    imr_phi = IMR_retardance(wavelength_bins,d=259.12583)[wavelength_bin]
-    hwp_phi = HWP_retardance(wavelength_bins,1.64601,1.28542)[wavelength_bin]
+    imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
+    hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
     epsilon_cal = 1
     offset_pickoff = 0.02
 
@@ -1357,11 +1358,6 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
                 "properties" : {"beam": 'o'}, 
                 "tag": "internal",
                 },
-                "pickoff" : {
-                    "type" : "general_retarder_function",
-                    "properties" : {"phi": 0.3, "delta_theta": 0.00168},
-                    "tag": "internal",
-                },                
                 "image_rotator" : {
                     "type" : "general_retarder_function",
                     "properties" : {"phi": imr_phi, "theta": imr_theta, "delta_theta": offset_imr},
@@ -1387,13 +1383,17 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     # Modify this if you want to change the parameters
 
     p0 = {
-        "pickoff" : 
-            {"phi": 0.3},
+        "image_rotator" : 
+            {"phi": imr_phi},
+        "hwp" :
+            {"phi": hwp_phi},
+        "lp" : 
+            {"epsilon": epsilon_cal},
     }
 
     # Define some bounds
     # Modify this if you want to change the parameters or minimization bounds
-    offset_bounds = (-5,5)
+    offset_bounds = (-1,1)
     hwpstd = 0.1*np.abs(hwp_phi)
     hwp_phi_bounds = (hwp_phi-hwpstd, hwp_phi+hwpstd)
     imrstd = 0.1*np.abs(imr_phi)
@@ -1404,7 +1404,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     offset_hwp_bounds = (offset_hwp-hwpostd, offset_hwp+hwpostd)
     epsilon_cal_bounds = (0.9*epsilon_cal, 1)
     calostd = 0.1 *np.abs(offset_cal)
-    offset_cal_bounds = (offset_cal-calostd, offset_cal+calostd)
+    offset_cal_bounds = (-15, 15)
     dichroic_phi_bounds = (0,np.pi)
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
@@ -1422,7 +1422,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
         if iteration > 1:
             previous_logl = new_logl
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, bounds = [dichroic_phi_bounds],mode='CHARIS')
+            interleaved_stds, configuration_list, bounds = [imr_phi_bounds,hwp_phi_bounds,epsilon_cal_bounds],mode='CHARIS')
         print(result)
 
         # Update p0 with new values
@@ -1452,9 +1452,11 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     diffs_sums2 = process_model(LR_intensities2, 'CHARIS')
 
     # Plot the modeled and observed values
-
-    plot_data_and_model(interleaved_values, interleaved_stds, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], mode='CHARIS',save_path=plot_path)
-
+    if plot_path:
+        fig , ax = plot_data_and_model(interleaved_values, interleaved_stds, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], mode='CHARIS',save_path=plot_path)
+    else:
+        fig , ax = plot_data_and_model(interleaved_values, interleaved_stds, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], mode='CHARIS')
+    
     # Print the Mueller matrix
 
     print("Updated Mueller Matrix:")
@@ -1471,7 +1473,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     with open (new_config_dict_path, 'w') as f:
         json.dump(p0, f, indent=4)
     error = np.array(error)
-    return error
+    return error, fig, ax
 
 
 
@@ -1620,7 +1622,7 @@ def quick_data_all_bins(cube_directory_path, raw_directory_path, csv_directory, 
         plot_single_differences(csv_file_path, plot_save_path)
 
 def plot_data_and_model(interleaved_values, interleaved_stds, model, 
-    configuration_list, imr_theta_filter=None, wavelength=None, save_path = None, mode = 'VAMPIRES'):
+    configuration_list, imr_theta_filter=None, wavelength=None, save_path = None, mode = 'VAMPIRES',title=None):
     """
     Plots double difference and double sum measurements alongside model predictions,
     grouped by image rotator angle (D_IMRANG). Optionally filters by a specific 
@@ -1653,6 +1655,8 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         (e.g., "670nm").
     mode : str
         Default is VAMPIRES. If mode is CHARIS normalized single differences will be used.
+    title : str, optional
+        Default is the wavelength.
 
     Returns
     -------
@@ -1748,8 +1752,10 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         ax.grid()
 
     # Set a suptitle if wavelength is provided
-    if wavelength is not None:
+    if wavelength is not None and title is None:
         fig.suptitle(f"{wavelength}nm")
+    if title:
+        fig.suptitle(title)
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for suptitle
 
