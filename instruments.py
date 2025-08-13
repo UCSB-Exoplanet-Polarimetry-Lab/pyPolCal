@@ -693,18 +693,71 @@ def update_p0(p0, result):
         p0[component][parameter] = value
         
 def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, 
-    configuration_list, s_in = None, logl_function = None, 
+    configuration_list, s_in = None, custom_function = None, 
     process_dataset = None, process_errors = None, process_model = None,
-    bounds = None, mode = 'VAMPIRES'):
+    bounds = None, mode = 'minimize'):
     '''
-    Perform a minimization on a dataset, using a System Mueller Matrix model
-    Args:
-        p0: Initial parameter dictionary
-        system_mm: System Mueller Matrix object
-        dataset: List of measured data
-        errors: List of measurement errors
-        configuration_list: Instrument configuration for each measurement
-        s_in: (Optional) Input Stokes vector (default: [1, 0, 0, 0])
+    Perform a minimization on a dataset, using a System Mueller Matrix model. This function
+    is customizable depending on fitting needs. All customizations are explained in detail
+    in the parameter descriptions.
+
+    Parameters
+    ----------
+
+    p0: dict of dict
+        Dictionary of dictionaries detailing components, parameters to fit, and starting guesses.
+
+        Example p0 dict: 
+            {
+            "image_rotator" : 
+                {"d": 259.7, "delta_theta": 0.014},
+            "hwp" :  
+                {"w_SiO2": 1.652, "w_MgF2": 1.283, "delta_theta": 0.008},
+            "lprot" : 
+                {"pa": 0.233},
+            }
+
+    system_mm: pyMuellerMat system Mueller matrix object
+        System Mueller matrix object generated from system dictionary and generate_system_mueller_matrix().
+        Components in p0 dict and configuration list will be updated. More detailed instructions on how
+        to generate these can be found in the minimization notebooks.
+
+    dataset: list or np.ndarray
+        Measured data. We currently use interleaved single differences and sums as the initial input.
+
+    errors: list or np.ndarray
+        Corresponding errors to measurements.
+
+    configuration_list: list of dict of dict
+        Instrument configuration for each measurement. Each component corresponds to a 
+        component in the system dictionary used to generate the system Mueller
+        Matrix and modifies the Mueller matrix to account for changing parts such as HWP angles, 
+        derotator angles, etc. Can be obtained from read_csv().
+
+        Example list for 2 measurements: 
+            [{'hwp': {'theta': 0.0}, 'image_rotator': {'theta': 45.0}}, 
+            {'hwp': {'theta': 11.25}, 'image_rotator': {'theta': 45.0}}]
+
+    s_in: list or np.ndarray, optional
+        Input Stokes vector (default: [1, 0, 0, 0])
+    
+    custom_function: function, optional
+        Custom negative likelihood or cost function. Use a negative likelihood function for
+        the default mode = 'minimize' and use a cost function for mode = 'least_squares'.
+        The default functions used are logl() and cost(), respectively. 
+
+    process_dataset: function, optional
+        Function to process your data. Default is None, leaving your data as is for fitting. 
+        Use the function process_dataset() in this module to convert interleaved single 
+        sums and differences to double differences.
+
+    mode : str, optional
+        "minimize" (default): uses scipy minimize and does not return errors. Minimizes
+        a negative log likelihood function.
+        "least_squares": returns errors and uses scipy least squares, which takes
+        a cost function cost() as an input. Error estimation
+        procedure from Van Holstein et al. 2020. 
+
     '''
     
     if s_in is None:
@@ -712,23 +765,21 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
 
     p0_values, p0_keywords = parse_configuration(p0)
 
-    # print("p0_values: ", p0_values)
-    # print("p0_keywords: ", p0_keywords)
 
     # Running scipy.minimize
-    if mode == 'VAMPIRES':
+    if mode == 'minimize':
         result = minimize(logl, p0_values, 
             args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
-                s_in, logl_function, process_dataset, process_errors, process_model), 
+                s_in, custom_function, process_dataset, process_errors, process_model), 
                 method='Nelder-Mead', bounds = bounds)
         
 
-    elif mode == 'CHARIS':
+    elif mode == 'least_squares':
         lower_bounds = [bound[0] for bound in bounds]
         upper_bounds = [bound[1] for bound in bounds]
-        result = least_squares(logl_CHARIS, p0_values, 
-            args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
-                s_in), method='trf', bounds = (lower_bounds, upper_bounds),verbose=2)
+        result = least_squares(cost, p0_values, 
+            args=(p0_keywords, system_mm, dataset, errors, configuration_list,
+                s_in,custom_function,process_dataset,process_errors,process_model), method='trf', bounds = (lower_bounds, upper_bounds),verbose=2)
         J = result.jac
         residual = result.fun
         dof = len(residual) - len(result.x)  # degrees of freedom
@@ -743,16 +794,144 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
             
     
     # Saving the final result's logl value
-    if mode == 'VAMPIRES':
+    if mode == 'minimize':
         logl_value = logl(result.x, p0_keywords, system_mm, dataset, errors, 
-            configuration_list, s_in=s_in, logl_function=logl_function, 
+            configuration_list, s_in=s_in, custom_function=custom_function, 
             process_dataset=process_dataset, process_errors = process_errors, 
             process_model = process_model)
-    if mode == 'CHARIS':
+    if mode == 'least_squares':
         logl_value = -result.cost
         return result, logl_value,errors
-    else:
+    elif mode =='minimize':
         return result, logl_value
+    
+def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
+         s_in=None, custom_function=None, process_dataset=None, process_errors=None, 
+         process_model=None):
+    """
+    Compute the negative log-likelihood of a model given a dataset and system configuration
+    for later use in scipy minimize.
+    This function evaluates how well a set of system Mueller matrix parameters
+    (given by `p`) reproduce the observed dataset, using a chi-squared-based 
+    likelihood metric or a user-defined function.
+
+    Parameters
+    ----------
+    p : list of float
+        List of current parameter values to optimize (flattened).
+    system_parameters : list of [str, str]
+        List of [component_name, parameter_name] pairs corresponding to `p`.
+    system_mm : pyMuellerMat.MuellerMat.SystemMuellerMatrix
+        Mueller matrix model of the optical system.
+    dataset : np.ndarray
+        Interleaved observed data values (e.g., [dd1, ds1, dd2, ds2, ...]).
+    errors : np.ndarray
+        Measurement errors associated with `dataset`, in the same order.
+    configuration_list : list of dict
+        Each dict describes the instrument configuration for a measurement, including 
+        settings like HWP angle, FLC state, etc.
+    s_in : np.ndarray, optional
+        Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
+    logl_function : callable, optional
+        A custom function with signature `logl_function(p, model, data, errors)` 
+        that returns the log-likelihood. If None, default chi-squared is used.
+    process_dataset : callable, optional
+        Function to transform the dataset (e.g., normalize or reduce dimensionality).
+    process_errors : callable, optional
+        Function to propagate errors through the same transformation as `process_dataset`.
+    process_model : callable, optional
+        Function to apply the same transformation to the model predictions as to the data.
+
+    Returns
+    -------
+    float
+        The computed negative log-likelihood value (lower is better).
+    """
+
+
+    # Generating a list of model predicted values for each configuration - already parsed
+    output_intensities = model(p, system_parameters, system_mm, configuration_list, 
+        s_in=s_in, process_model=process_model)
+
+    # Convert lists to numpy arrays
+    dataset = np.array(dataset)
+    errors = np.array(errors)
+
+    # Optionally parse the dataset and output intensities (e.g., normalized difference)
+    if process_dataset is not None:
+        processed_dataset = process_dataset(copy.deepcopy(dataset))
+    elif process_dataset is None:
+        processed_dataset = copy.deepcopy(dataset)
+    # Optionally parse the dataset and output intensities (e.g., normalized difference)
+    if process_errors is not None:
+        processed_errors = process_errors(copy.deepcopy(errors), 
+            copy.deepcopy(dataset))
+    elif process_errors is None:
+        processed_errors = copy.deepcopy(errors)
+
+    dataset = copy.deepcopy(processed_dataset)
+    errors = copy.deepcopy(processed_errors)
+    # Note - the errors are floored at 1e-3 here, and this is larger than my typical double difference
+    # errors. This floor does not exist in least squares mode.
+    #errors = np.maximum(errors, 1e-3)
+    # Calculate log likelihood
+    if custom_function is not None:
+     return custom_function(p, output_intensities, dataset, errors)
+    else:
+     return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
+
+def cost(p, system_parameters, system_mm, dataset, errors, configuration_list, 
+         s_in=None,custom_function=None,process_dataset=None,process_errors=None,process_model=None):
+    """
+    Cost function that describes how well Mueller matrix parameters fit data.
+
+
+    Parameters
+    ----------
+    p : list of float
+        List of current parameter values to optimize (flattened).
+    system_parameters : list of [str, str]
+        List of [component_name, parameter_name] pairs corresponding to `p`.
+    system_mm : pyMuellerMat.MuellerMat.SystemMuellerMatrix
+        Mueller matrix model of the optical system.
+    dataset : np.ndarray
+        Interleaved observed data values (e.g., [dd1, ds1, dd2, ds2, ...]).
+    errors : np.ndarray
+        Measurement errors associated with `dataset`, in the same order.
+    configuration_list : list of dict
+        Each dict describes the instrument configuration for a measurement, including 
+        settings like HWP angle, FLC state, etc.
+    s_in : np.ndarray, optional
+        Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
+
+    Returns
+    -------
+    float
+        The computed log-likelihood value (higher is better).
+    """
+
+    # print("Entered logl")
+
+    # Generating a list of model predicted values for each configuration - already parsed
+    output_intensities = model(p, system_parameters, system_mm, configuration_list, 
+        s_in=s_in)
+    # Processing model converts raw L/R intensities to double differences
+    if process_model:
+        differences = process_model(output_intensities)
+    # Processing errors converts interleaved single sum/difference errors to an array
+    # of double difference errors
+    if process_errors:
+        errors = process_errors
+    if process_dataset:
+        dataset = process_dataset(dataset)
+    # Convert lists to numpy arrays, only differences used
+    residuals = differences - dataset
+    #chi_squared = np.sum((residuals / errors) ** 2)
+    cost = residuals / errors
+    if custom_function is not None:
+        return custom_function(p, output_intensities, dataset, errors)
+    else:
+        return cost
 
 def model(p, system_parameters, system_mm, configuration_list, s_in=None, 
         process_model = None):
@@ -912,144 +1091,7 @@ def generate_CHARIS_mueller_matrix(wavelength_bin, hwp_angle, imr_angle, beam, d
         return system_mm
 
 
-def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
-         s_in=None, logl_function=None, process_dataset=None, process_errors=None, 
-         process_model=None):
-    """
-    Compute the log-likelihood of a model given a dataset and system configuration.
 
-    This function evaluates how well a set of system Mueller matrix parameters
-    (given by `p`) reproduce the observed dataset, using a chi-squared-based 
-    likelihood metric or a user-defined log-likelihood function.
-
-    Parameters
-    ----------
-    p : list of float
-        List of current parameter values to optimize (flattened).
-    system_parameters : list of [str, str]
-        List of [component_name, parameter_name] pairs corresponding to `p`.
-    system_mm : pyMuellerMat.MuellerMat.SystemMuellerMatrix
-        Mueller matrix model of the optical system.
-    dataset : np.ndarray
-        Interleaved observed data values (e.g., [dd1, ds1, dd2, ds2, ...]).
-    errors : np.ndarray
-        Measurement errors associated with `dataset`, in the same order.
-    configuration_list : list of dict
-        Each dict describes the instrument configuration for a measurement, including 
-        settings like HWP angle, FLC state, etc.
-    s_in : np.ndarray, optional
-        Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
-    logl_function : callable, optional
-        A custom function with signature `logl_function(p, model, data, errors)` 
-        that returns the log-likelihood. If None, default chi-squared is used.
-    process_dataset : callable, optional
-        Function to transform the dataset (e.g., normalize or reduce dimensionality).
-    process_errors : callable, optional
-        Function to propagate errors through the same transformation as `process_dataset`.
-    process_model : callable, optional
-        Function to apply the same transformation to the model predictions as to the data.
-
-    Returns
-    -------
-    float
-        The computed log-likelihood value (higher is better).
-    """
-
-    # print("Entered logl")
-
-    # Generating a list of model predicted values for each configuration - already parsed
-    output_intensities = model(p, system_parameters, system_mm, configuration_list, 
-        s_in=s_in, process_model=process_model)
-
-    # Convert lists to numpy arrays
-    dataset = np.array(dataset)
-    errors = np.array(errors)
-    
-
-    # print("Output Intensities: ", np.shape(output_intensities))
-
-    # Optionally parse the dataset and output intensities (e.g., normalized difference)
-    # print("Pre process_dataset dataset shape: ", np.shape(dataset))
-    if process_dataset is not None:
-        processed_dataset = process_dataset(copy.deepcopy(dataset))
-    elif process_dataset is None:
-        processed_dataset = copy.deepcopy(dataset)
-    # print("Post process_dataset dataset shape: ", np.shape(processed_dataset))
-
-    # Optionally parse the dataset and output intensities (e.g., normalized difference)
-    # print("Pre process_errors errors shape: ", np.shape(dataset))
-    if process_errors is not None:
-        processed_errors = process_errors(copy.deepcopy(errors), 
-            copy.deepcopy(dataset))
-    elif process_errors is None:
-        processed_errors = copy.deepcopy(errors)
-    # print("Post process_errors errors shape: ", np.shape(processed_errors))
-
-    dataset = copy.deepcopy(processed_dataset)
-    errors = copy.deepcopy(processed_errors)
-    errors = np.maximum(errors, 1e-3)
-    # Calculate log likelihood
-    if logl_function is not None:
-     return logl_function(p, output_intensities, dataset, errors)
-    else:
-     return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
-# transformed to residual func
-def logl_CHARIS(p, system_parameters, system_mm, dataset, errors, configuration_list, 
-         s_in=None):
-    """
-    This function evaluates how well a set of system Mueller matrix parameters
-    (given by `p`) reproduce the observed dataset, using a chi-squared-based 
-    likelihood metric. Note: this function isn't currently a logl as of now 
-    it returns residuals for use in scipy least squares.
-
-
-    Parameters
-    ----------
-    p : list of float
-        List of current parameter values to optimize (flattened).
-    system_parameters : list of [str, str]
-        List of [component_name, parameter_name] pairs corresponding to `p`.
-    system_mm : pyMuellerMat.MuellerMat.SystemMuellerMatrix
-        Mueller matrix model of the optical system.
-    dataset : np.ndarray
-        Interleaved observed data values (e.g., [dd1, ds1, dd2, ds2, ...]).
-    errors : np.ndarray
-        Measurement errors associated with `dataset`, in the same order.
-    configuration_list : list of dict
-        Each dict describes the instrument configuration for a measurement, including 
-        settings like HWP angle, FLC state, etc.
-    s_in : np.ndarray, optional
-        Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
-
-    Returns
-    -------
-    float
-        The computed log-likelihood value (higher is better).
-    """
-
-    # print("Entered logl")
-
-    # Generating a list of model predicted values for each configuration - already parsed
-    output_intensities = model(p, system_parameters, system_mm, configuration_list, 
-        s_in=s_in)
-    diffssums = process_model(output_intensities)
-    # Convert lists to numpy arrays, only differences used
-    dataset = np.array(dataset)
-    errors = np.array(errors)
-    diffssums= diffssums[::2]
-    print('dataset:',dataset)
-    print('errors:',errors)
-    print('model:',diffssums)
-    processed_dataset = copy.deepcopy(dataset)
-
-    processed_errors = copy.deepcopy(errors)
-
-    dataset = copy.deepcopy(processed_dataset)
-    errors = copy.deepcopy(processed_errors)
-    residuals = diffssums - dataset
-    #chi_squared = np.sum((residuals / errors) ** 2)
-    residual = residuals / errors
-    return residual
 def build_differences_and_sums(intensities, normalized=False):
     '''
     Assume that the input intensities are organized in pairs. Such that
@@ -1077,71 +1119,48 @@ def build_double_differences_and_sums(differences, sums):
 
     return double_differences, double_sums
 
-def process_model(model_intensities, mode= 'VAMPIRES'):
+def process_model(model_intensities):
     """
-    Processes the model intensities to compute differences and sums,
-    and formats them into a single interleaved array. 
+    Processes the model intensities to compute double differences.
+    
     
     Parameters
     ----------
     model_intensities : list or np.ndarray
         List or array of model intensities, expected to be in pairs.
-    mode : str, optional
-        Mode of processing, either 'VAMPIRES' or 'CHARIS'. 
-        Default is 'VAMPIRES'. VAMPIRES returns double differences
-        and CHARIS returns single differences."""
     
-    # Making sure the mode exists
-    if mode not in ['VAMPIRES', 'CHARIS']:
-        raise ValueError("Mode must be either 'VAMPIRES' or 'CHARIS'.")
+    Returns
+    --------
+    double_differences : np.ndarray
+        Array of simulated double differences
     
-    # Making sure that model_intensities is a numpy array
-
+    """
+    
     model_intensities = np.array(model_intensities)
 
-    # print("Entered process_model")
 
-    
+   
+    differences, sums = build_differences_and_sums(model_intensities)
+    double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
-    if mode == 'VAMPIRES':
-        differences, sums = build_differences_and_sums(model_intensities)
-        double_differences, double_sums = build_double_differences_and_sums(differences, sums)
-
-    # print("Differences shape: ", np.shape(differences))
-    # print("Sums shape: ", np.shape(sums))
-    # print("Double Differences shape: ", np.shape(double_differences))
-    # print("Double Sums shape: ", np.shape(double_sums))
 
     #Format this into one array. 
-    if mode == 'VAMPIRES':
         # Interleave the double differences and double sums
-        interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+    interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
          
         # NOTE: Subtracting same FLC state orders (A - B) as Miles
-    
-    
-    if mode == 'CHARIS':
-        # Interleave the norm single differences and single sums
-        differences, sums = build_differences_and_sums(model_intensities, normalized=True)
-        interleaved_values = np.ravel(np.column_stack((differences, sums)))
-
     # Take the negative of this as was done before
     interleaved_values = -interleaved_values
-
-    return interleaved_values
-# FIX THIS- CURRENTLY CONVERTS NORM SINGLE DIFFS TO SINGLE DIFFS
+    # Extracting differences (done this way for easy reversal to old format of interleaving)
+    double_diffs = interleaved_values[::2]
+    return double_diffs
 def process_dataset(input_dataset): 
     # Making sure that input_dataset is a numpy array
-    # print("Entered process_dataset")
-    # print("Pre np.array Input dataset: ", np.shape(input_dataset))
     input_dataset = np.array(input_dataset)
-    # print("Post np.array Input dataset: ", np.shape(input_dataset))
     sums = input_dataset[1::2]
-    differences = input_dataset[::2]*sums
+    differences = input_dataset[::2]
    
 
-    # print("Differences: ", differences)
-    # print("Sums shape: ", np.shape(sums))e
 
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
@@ -1161,21 +1180,16 @@ def process_errors(input_errors, input_dataset):
     Returns:
         numpy array: Propagated errors for double differences and sums.
     """
-    # print("Entered process_errors")
 
     # Ensure input is a NumPy array
     input_errors = np.array(input_errors)
     input_dataset = np.array(input_dataset)
 
-    # print("Pre-processing Errors shape: ", np.shape(input_errors))
-    # print("Pre-processing Dataset shape: ", np.shape(input_dataset))
 
     # Compute errors for differences and sums
     differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
     sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
 
-    # print("Differences Errors shape: ", np.shape(differences_errors))
-    # print("Sums Errors shape: ", np.shape(sums_errors))
 
     # Compute double differences and double sums
     differences = input_dataset[::2] - input_dataset[1::2]
@@ -1195,15 +1209,13 @@ def process_errors(input_errors, input_dataset):
         (sums[::2] - sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
     ) / (denominator**2)
 
-    # print("Double Differences Errors shape: ", np.shape(double_differences_errors))
-    # print("Double Sums Errors shape: ", np.shape(double_sums_errors))
 
     # Interleave errors to maintain order
     interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
+    # Double diffs extracted this way for ease of reverting back to the original setup
+    double_diff_errors = interleaved_errors[::2]
 
-    # print("Final interleaved Errors shape: ", np.shape(interleaved_errors))
-
-    return interleaved_errors
+    return double_diff_errors
 
 # streamline process for all wavelength bins
 # SET UP FOR DDs from NSD
