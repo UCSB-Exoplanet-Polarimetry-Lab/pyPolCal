@@ -225,7 +225,7 @@ def run_mcmc(
     system_mm : SystemMuellerMatrix
         The optical system's Mueller matrix object.
     dataset : np.ndarray
-        Observed data values (interleaved double differences and sums).
+        Observed data values (interleaved single differences and sums).
     errors : np.ndarray
         Standard deviations associated with each element of `dataset`.
     configuration_list : list of dict
@@ -506,7 +506,7 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
     output_intensities = np.array(output_intensities)
 
     return output_intensities
-
+# UPDATED FOR DOUBLE DIFFERENCES WITH CHARIS
 def logl_with_logf(theta, system_mm, dataset, errors, configuration_list, 
                    system_parameters, s_in, process_model, process_dataset, 
                    process_errors, mode='VAMPIRES'):
@@ -552,16 +552,17 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
                             s_in=s_in, process_model=None) 
         model_output = process_model(model_output, mode='CHARIS')
     if mode == 'CHARIS':
-        dataset = dataset[::2]
-        errors=errors[::2]
+     dataset = dataset[::2]
+     errors=errors[::2]
     dataset = jnp.array(dataset)
     errors = jnp.array(errors)
-
-    if process_dataset is not None:
-        dataset = process_dataset(copy.deepcopy(dataset))
     if process_errors is not None:
         errors = process_errors(copy.deepcopy(errors), copy.deepcopy(dataset))
+    if process_dataset is not None:
+        dataset = process_dataset(copy.deepcopy(dataset))
 
+    dataset = dataset[::2]
+    errors = errors[::2]
     sigma2 = errors**2 + jnp.exp(2 * log_f)
     return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
 
@@ -650,11 +651,24 @@ def build_differences_and_sums(intensities):
 
     return differences, sums
 @jit
+def build_double_differences_and_sums(differences, sums):
+    '''
+    Assume that the input intensities are organized in pairs. Such that
+    '''
+    # Making sure that differences and sums are numpy arrays
+    differences = jnp.array(differences)
+    sums = jnp.array(sums)
+
+    double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
+    double_sums = (differences[::2]+differences[1::2])/(sums[::2]+sums[1::2])
+
+    return double_differences, double_sums
+@jit
 def normalize_diffs(differences,sums):
     diffs=differences/sums
     return diffs,sums
-
-def process_model(model_intensities, mode= 'VAMPIRES'):
+# ONLY USES DIFFERENCES
+def process_model(model_intensities, mode= 'VAMPIRES'): 
     """
     Processes the model intensities to compute differences and sums,
     and formats them into a single interleaved array. 
@@ -690,9 +704,10 @@ def process_model(model_intensities, mode= 'VAMPIRES'):
     # print("Double Sums shape: ", np.shape(double_sums))
 
     #Format this into one array. 
-    if mode == 'VAMPIRES':
+    # only use diffs
+    if mode == 'VAMPIRES': 
         # Interleave the double differences and double sums
-        interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
+        interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))[::2]
          
         # NOTE: Subtracting same FLC state orders (A - B) as Miles
     
@@ -710,16 +725,16 @@ def process_model(model_intensities, mode= 'VAMPIRES'):
 
     return interleaved_values
 
-def process_dataset(input_dataset): 
+def process_dataset(input_dataset): # EDITED FOR CHARIS DOUBLE DIFFS- CHANGE BACK
     # Making sure that input_dataset is a numpy array
     # print("Entered process_dataset")
     # print("Pre np.array Input dataset: ", np.shape(input_dataset))
     input_dataset = np.array(input_dataset)
     # print("Post np.array Input dataset: ", np.shape(input_dataset))
 
-    differences = input_dataset[::2]
+    
     sums = input_dataset[1::2]
-
+    differences = input_dataset[::2]*sums
     # print("Differences: ", differences)
     # print("Sums shape: ", np.shape(sums))
 
@@ -730,7 +745,7 @@ def process_dataset(input_dataset):
     # Format this into one array.
     return interleaved_values
 
-def process_errors(input_errors, input_dataset): 
+def process_errors(input_errors, input_dataset): #EDITED TO WORK WITH CHARIS DOUBLE DIFFS- FIX LATER
     """
     Propagates errors through the same transformations as `process_dataset`.
     
@@ -746,14 +761,13 @@ def process_errors(input_errors, input_dataset):
     # Ensure input is a NumPy array
     input_errors = np.array(input_errors)
     input_dataset = np.array(input_dataset)
-
+    
     # print("Pre-processing Errors shape: ", np.shape(input_errors))
     # print("Pre-processing Dataset shape: ", np.shape(input_dataset))
 
     # Compute errors for differences and sums
-    differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
-    sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
-
+    differences_errors = input_errors[::2]
+    sums_errors = input_errors[1::2]
     # print("Differences Errors shape: ", np.shape(differences_errors))
     # print("Sums Errors shape: ", np.shape(sums_errors))
 
@@ -764,25 +778,33 @@ def process_errors(input_errors, input_dataset):
     denominator = (sums[::2] + sums[1::2])  # This is used for normalization
 
     # Compute propagated errors for double differences
-    double_differences_errors = np.sqrt(
-        (sums[::2] + sums[1::2])**2 * (differences_errors[::2]**2 + differences_errors[1::2]**2) + 
-        (differences[::2] - differences[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
-    ) / (denominator**2)
+    # Fixed to avoid overflow
+    M = max(np.max(np.abs(sums)), np.max(np.abs(differences)), 1e-10)  # avoid zero division
+
+    scaled_sums = sums / M
+    scaled_diffs = differences / M
+    numerator = (
+        (scaled_sums[::2] + scaled_sums[1::2])**2 * (differences_errors[::2]**2 + differences_errors[1::2]**2) +
+        (scaled_diffs[::2] - scaled_diffs[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
+    )
+    denominator = (scaled_sums[::2] + scaled_sums[1::2])
+
+    double_differences_errors = (M**-2) * np.sqrt(numerator) / (denominator**2)
 
     # Compute propagated errors for double sums
     double_sums_errors = np.sqrt(
         (sums[::2] + sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2) + 
         (sums[::2] - sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
-    ) / (denominator**2)
+    ) / (denominator**2) 
 
     # print("Double Differences Errors shape: ", np.shape(double_differences_errors))
     # print("Double Sums Errors shape: ", np.shape(double_sums_errors))
 
     # Interleave errors to maintain order
+   
     interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
 
     # print("Final interleaved Errors shape: ", np.shape(interleaved_errors))
-
     return interleaved_errors
 
 #######################################################

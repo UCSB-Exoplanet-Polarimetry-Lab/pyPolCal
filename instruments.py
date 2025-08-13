@@ -756,7 +756,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
         upper_bounds = [bound[1] for bound in bounds]
         result = least_squares(logl_CHARIS, p0_values, 
             args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
-                s_in), method='dogbox', bounds = (lower_bounds, upper_bounds),verbose=2)
+                s_in), method='trf', bounds = (lower_bounds, upper_bounds),verbose=2)
         J = result.jac
         residual = result.fun
         dof = len(residual) - len(result.x)  # degrees of freedom
@@ -1114,13 +1114,14 @@ def logl_CHARIS(p, system_parameters, system_mm, dataset, errors, configuration_
     # Generating a list of model predicted values for each configuration - already parsed
     output_intensities = model(p, system_parameters, system_mm, configuration_list, 
         s_in=s_in)
-    # Convert to single differences
-    diffssums = process_model(output_intensities, mode='CHARIS')
+    diffssums = process_model(output_intensities)
     # Convert lists to numpy arrays, only differences used
-    dataset = np.array(dataset)[::2]
-    errors = np.array(errors)[::2]
+    dataset = np.array(dataset)
+    errors = np.array(errors)
     diffssums= diffssums[::2]
-
+    print('dataset:',dataset)
+    print('errors:',errors)
+    print('model:',diffssums)
     processed_dataset = copy.deepcopy(dataset)
 
     processed_errors = copy.deepcopy(errors)
@@ -1210,16 +1211,16 @@ def process_model(model_intensities, mode= 'VAMPIRES'):
     interleaved_values = -interleaved_values
 
     return interleaved_values
-
+# FIX THIS- CURRENTLY CONVERTS NORM SINGLE DIFFS TO SINGLE DIFFS
 def process_dataset(input_dataset): 
     # Making sure that input_dataset is a numpy array
     # print("Entered process_dataset")
     # print("Pre np.array Input dataset: ", np.shape(input_dataset))
     input_dataset = np.array(input_dataset)
     # print("Post np.array Input dataset: ", np.shape(input_dataset))
-
-    differences = input_dataset[::2]
     sums = input_dataset[1::2]
+    differences = input_dataset[::2]*sums
+   
 
     # print("Differences: ", differences)
     # print("Sums shape: ", np.shape(sums))e
@@ -1287,7 +1288,7 @@ def process_errors(input_errors, input_dataset):
     return interleaved_errors
 
 # streamline process for all wavelength bins
-
+# SET UP FOR DDs from NSD
 def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):
     """
     Fits a Mueller matrix for one wavelength bin from internal calibration data and saves
@@ -1321,6 +1322,8 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     -------
     error : np.array
       An array of the errors for each parameter. 
+    fig : MatPlotLib figure object
+    ax : MatPlotLib axis object
     """
     # Check file paths
     filepath = Path(csv_path)
@@ -1336,12 +1339,18 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     # Read in data
 
     interleaved_values, interleaved_stds, configuration_list = read_csv(filepath)
+    # plot function needs my interleaved values unaltered (which they will be in intermediary funcs)
+    interleaved_values_forplotfunc = copy.deepcopy(interleaved_values)
+    interleaved_stds_forlplotfunc = copy.deepcopy(interleaved_stds)
+    interleaved_stds = process_errors(interleaved_stds,interleaved_values)[::2] # just diffs
+    interleaved_values = process_dataset(interleaved_values)[::2] # just diffs
+    configuration_list = configuration_list 
 
     # Loading in past fits 
 
-    offset_imr = 0.13214 # derotator offset
-    offset_hwp = -0.99287 # HWP offset
-    offset_cal = 0.49797 # calibration polarizer offset
+    offset_imr = -0.0118 # derotator offset
+    offset_hwp = -0.002# HWP offset
+    offset_cal = -0.035 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
@@ -1353,28 +1362,34 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
 
     system_dict = {
-            "components" : {
-                "wollaston" : {
-                "type" : "wollaston_prism_function",
-                "properties" : {"beam": 'o'}, 
+        "components" : {
+            "wollaston" : {
+            "type" : "wollaston_prism_function",
+            "properties" : {"beam": 'o'}, 
+            "tag": "internal",
+            },
+            "image_rotator" : {
+                "type" : "general_retarder_function",
+                "properties" : {"phi": 0, "theta": imr_theta, "delta_theta": offset_imr},
                 "tag": "internal",
-                },
-                "image_rotator" : {
-                    "type" : "general_retarder_function",
-                    "properties" : {"phi": imr_phi, "theta": imr_theta, "delta_theta": offset_imr},
-                    "tag": "internal",
-                },
-                "hwp" : {
-                    "type" : "general_retarder_function",
-                    "properties" : {"phi": hwp_phi, "theta": hwp_theta, "delta_theta": offset_hwp},
-                    "tag": "internal",
-                },
-                "lp" : {  # calibration polarizer for internal calibration source
-                    "type": "diattenuator_retarder_function",
-                    "properties": {"epsilon": epsilon_cal, "delta_theta": offset_cal },
-                    "tag": "internal",
-                }}
-        }
+            },
+            "hwp" : {
+                "type" : "general_retarder_function",
+                "properties" : {"phi": 0, "theta": hwp_theta, "delta_theta": offset_hwp},
+                "tag": "internal",
+            },
+            "lp_rot": { # changed from delta_theta to match Joost t Hart
+                "type": "rotator_function",
+                "properties" : {'pa':offset_cal},
+                "tag": "internal",
+            },
+            "lp" : {  # calibration polarizer for internal calibration source
+                "type": "diattenuator_retarder_function",
+                "properties": {"epsilon":1},
+                "tag": "internal",
+            }}
+    }
+
 
     # Converting system dictionary into system Mueller Matrix object
 
@@ -1385,16 +1400,18 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     p0 = {
         "image_rotator" : 
-            {"phi": imr_phi},
+            {"phi": imr_phi, "delta_theta": offset_imr},
         "hwp" :
-            {"phi": hwp_phi},
+            {"phi": hwp_phi, "delta_theta": offset_hwp},
+        "lp_rot":
+            {'pa':offset_cal},
         "lp" : 
             {"epsilon": epsilon_cal},
     }
 
     # Define some bounds
     # Modify this if you want to change the parameters or minimization bounds
-    offset_bounds = (-1,1)
+    offset_bounds = (-5,5)
     hwpstd = 0.1*np.abs(hwp_phi)
     hwp_phi_bounds = (hwp_phi-hwpstd, hwp_phi+hwpstd)
     imrstd = 0.1*np.abs(imr_phi)
@@ -1423,7 +1440,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
         if iteration > 1:
             previous_logl = new_logl
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, bounds = [imr_phi_bounds,hwp_phi_bounds,epsilon_cal_bounds],mode='CHARIS')
+            interleaved_stds, configuration_list, bounds = [imr_phi_bounds,offset_bounds,hwp_phi_bounds,offset_bounds,offset_bounds,epsilon_cal_bounds],mode='VAMPIRES')
         print(result)
 
         # Update p0 with new values
@@ -1450,13 +1467,13 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # Process these into interleaved single normalized differences and sums
 
-    diffs_sums2 = process_model(LR_intensities2, 'CHARIS')
+    diffs_sums2 = process_model(LR_intensities2)
 
     # Plot the modeled and observed values
     if plot_path:
-        fig , ax = plot_data_and_model(interleaved_values, interleaved_stds, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], mode='CHARIS',save_path=plot_path)
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], mode='CHARIS',save_path=plot_path)
     else:
-        fig , ax = plot_data_and_model(interleaved_values, interleaved_stds, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], mode='CHARIS')
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], mode='CHARIS')
     
     # Print the Mueller matrix
 
@@ -1464,8 +1481,8 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     print(updated_system_mm.evaluate())
 
     # Print residuals
-
-    residuals = interleaved_values[::2] - diffs_sums2[::2]
+    print(len(interleaved_values), len(diffs_sums2))
+    residuals = interleaved_values - diffs_sums2[::2]
     print("Residuals range:", residuals.min(), residuals.max())
     print("Error:", error)
 
@@ -1621,7 +1638,7 @@ def quick_data_all_bins(cube_directory_path, raw_directory_path, csv_directory, 
 
         plot_save_path = Path(plot_directory) / f'diffvshwp_bin{bin}.png'
         plot_single_differences(csv_file_path, plot_save_path)
-
+# CURRENTLY CONFIGURED FOR CHARIS DDs
 def plot_data_and_model(interleaved_values, interleaved_stds, model, 
     configuration_list, imr_theta_filter=None, wavelength=None, save_path = None, mode = 'VAMPIRES',title=None):
     """
@@ -1632,9 +1649,8 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     Parameters
     ----------
     interleaved_values : np.ndarray
-        Interleaved array of observed double difference and double sum values.
-        Expected format: [dd1, ds1, dd2, ds2, ...]. In CHARIS mode use
-        single differences and sums.
+        Interleaved array of observed single difference and single sum values.
+        Expected format: [sd1, ss1, sd2, ss2, ...]. 
 
     interleaved_stds : np.ndarray
         Interleaved array of standard deviations corresponding to the observed values.
@@ -1664,9 +1680,9 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     fig, ax
     """
     # Calculate double differences and sums from interleaved single differences if in VAMPIRES mode 
-    if mode =='VAMPIRES':
-        interleaved_stds = process_errors(interleaved_stds, interleaved_values)
-        interleaved_values = process_dataset(interleaved_values)
+    
+    interleaved_stds = process_errors(interleaved_stds, interleaved_values)
+    interleaved_values = process_dataset(interleaved_values)
     
 
     # Extract double differences and double sums
@@ -1683,7 +1699,7 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     if mode ==  'VAMPIRES':
         index = 2
     if mode == 'CHARIS':
-        index = None
+        index = 2
     for i, config in enumerate(configuration_list[::index]):
         hwp_theta = config["hwp"]["theta"]
         imr_theta = round(config["image_rotator"]["theta"], 1)
@@ -1748,7 +1764,7 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         small_ax.axhline(0, color='black', linewidth=1)
         small_ax.set_xlabel(r"HWP $\theta$ (deg)")
         small_ax.set_ylabel(r"Residual ($\%$)", fontsize = 15)
-        ax.set_ylabel("Single Difference")
+        ax.set_ylabel("Double Difference")
         ax.legend(title=r"IMR $\theta$", fontsize=10)
         ax.grid()
 
@@ -2294,7 +2310,7 @@ def model_data(json_dir, csv_path=None):
             # Extract offset angles 
             hwp_offset = data['hwp']['delta_theta']
             imr_offset = data['image_rotator']['delta_theta']
-            lp_offset = data['lp']['delta_theta'] 
+            lp_offset = data['lp_rot']['pa'] 
             hwp_retardances.append(hwp_retardance)
             imr_retardances.append(imr_retardance)
             hwp_offsets.append(hwp_offset)
@@ -2348,8 +2364,7 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
     Parameters
     ----------
     interleaved_values : np.ndarray
-        Interleaved array of observed double difference and double sum values.
-        Expected format: [dd1, ds1, dd2, ds2, ...]. In CHARIS mode use
+        Interleaved array of observed 
         single differences and sums.
 
     interleaved_stds : np.ndarray
