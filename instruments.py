@@ -697,11 +697,11 @@ def process_errors(input_errors, input_dataset):
     denominator = (single_sums[::2] + single_sums[1::2])  # This is used for normalization
 
     # Compute propagated errors for double differences
-    double_differences_errors = normalized_double_differences ** 2 * np.sqrt(
+    double_differences_errors = np.abs(normalized_double_differences) * np.sqrt(
         (differences_errors / double_differences_numerators) ** 2 + 
         (denominator_errors / denominator) ** 2
     )
-    double_sums_errors = normalized_double_sums ** 2 * np.sqrt(
+    double_sums_errors = np.abs(normalized_double_sums) * np.sqrt(
         (sums_errors / double_sums_numerators) ** 2 + 
         (denominator_errors / denominator) ** 2
     )
