@@ -30,13 +30,14 @@ from scipy.optimize import least_squares
 ###############################################################
 
 # define CHARIS wavelength bins
+
 wavelength_bins = np.array([1159.5614, 1199.6971, 1241.2219, 1284.184 , 1328.6331, 1374.6208,
 1422.2002, 1471.4264, 1522.3565, 1575.0495, 1629.5663, 1685.9701,
 1744.3261, 1804.7021, 1867.1678, 1931.7956, 1998.6603, 2067.8395,
 2139.4131, 2213.4641, 2290.0781, 2369.3441])
-# MODIFIED FOR HART DATA
+
 def single_sum_and_diff(fits_cube_path, wavelength_bin):
-    """Calculate normalized single difference and sum between left and right beam 
+    """Calculate single difference and sum between left and right beam 
     rectangular aperture photometry from a CHARIS fits cube. Add L/R counts and stds to array.
     
     Parameters:
@@ -54,8 +55,8 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
             [0] single_sum : float
                 Single sum of left and right beam apertures:
                 (R + L)
-            [1] norm_single_diff : float
-                Normalized single difference of left and right beam apertures:
+            [1] single_diff : float
+                Single difference of left and right beam apertures:
                 (R - L) / (R + L)
             [2] left_counts : float
                 Left beam aperture counts.
@@ -64,17 +65,15 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
             [4] sum_std : float
                 Standard deviation of the single sum.
             [5] diff_std : float
-                Standard deviation of the normalized single difference.
+                Standard deviation of the single difference.
     """
     
     # check if fits_cube_path is a valid file path
-
     fits_cube_path = Path(fits_cube_path)
     if not fits_cube_path.is_file():
         raise FileNotFoundError(f"File not found: {fits_cube_path}")
     
     # retrieve fits cube data
-
     hdul = fits.open(fits_cube_path)
     cube_data = hdul[1].data
 
@@ -84,15 +83,13 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
         raise ValueError("Input data must be a 3D cube (wavelength, x, y).")
         
     # check if wavelength_bin is within bounds
-
     if not (0 <= wavelength_bin < cube_data.shape[0]):
         raise ValueError(f"wavelength_bin must be between 0 and {cube_data.shape[0] - 1}.")
     
     image_data = cube_data[wavelength_bin]
 
     # define rectangular apertures for left and right beams
-    # note- these values are based on rough analysis and may need adjustment for high precision
-
+    # these values are based on ds9 pixel by pixel analysis
     centroid_lbeam = [71.75, 86.25]
     centroid_rbeam = [131.5, 116.25]
     aperture_width = 44.47634202584561
@@ -100,27 +97,21 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
     theta = 0.46326596610192305
 
     # define apertures perform aperture photometry 
-
     aperture_lbeam = RectangularAperture(centroid_lbeam, aperture_width, aperture_height, theta=theta)
     aperture_rbeam = RectangularAperture(centroid_rbeam, aperture_width, aperture_height, theta=theta)
     phot_lbeam = aperture_photometry(image_data, aperture_lbeam)
     phot_rbeam = aperture_photometry(image_data, aperture_rbeam)
 
     # calculate normalized single difference and sum
-
     single_sum = phot_rbeam['aperture_sum'][0] + phot_lbeam['aperture_sum'][0]
-    norm_single_diff = (phot_rbeam['aperture_sum'][0] - phot_lbeam['aperture_sum'][0]) / single_sum
+    norm_single_diff = (phot_rbeam['aperture_sum'][0] - phot_lbeam['aperture_sum'][0]) #/ single_sum
 
     # get left and right counts
-
     left_counts = phot_lbeam['aperture_sum'][0]
     right_counts = phot_rbeam['aperture_sum'][0]
 
-    # calculate standard deviations of single sum and normalized single difference
-
-    sum_std = np.sqrt(single_sum) # Assuming Poisson noise for counts
-    diff_std = np.sqrt((4*(left_counts**2)*right_counts + 4*(right_counts**2)*left_counts) / (single_sum**4)) # error propagation for normalized difference
-    #diff_std = np.abs(0.1*norm_single_diff) # Dummy error
+    # Assume Poissanian noise and propagate error
+    sum_std = diff_std = np.sqrt(left_counts+right_counts)
     return (single_sum, norm_single_diff, left_counts, right_counts, sum_std, diff_std)
 
 # function to fix corrupted hwp data
@@ -139,18 +130,14 @@ def fix_hwp_angles(csv_file_path, nderotator=8):
     --------
     None
     '''
-    # check if csv_file_path is a valid file path
-
     csv_file_path = Path(csv_file_path)
     if not csv_file_path.is_file():
         raise FileNotFoundError(f"File not found: {csv_file_path}")
     
     # read csv file into pandas dataframe
-
     df = pd.read_csv(csv_file_path)
 
     # check if 'RET-ANG1' column is present
-
     if 'RET-ANG1' not in df.columns:
         raise ValueError("Column 'RET-ANG1' is missing from the CSV file.")
     
@@ -165,6 +152,55 @@ def fix_hwp_angles(csv_file_path, nderotator=8):
 
     print(f"Fixed HWP angles saved to {fixed_csv_path}")
 
+def arr_csv_HWP(csv_path, hwp_order, todelete=None, new_csv_path=None):
+    """Arranges CSVs by a custom HWP order. Deletes selected angles.
+    
+    Parameters:
+    -----------
+    csv_path: str or Path
+        CSV containing relevant headers, can be obtained from
+        write_fits_info_to_csv().
+    hwp_order: list or np.ndarray
+        List of desired HWP order. 
+    todelete: list or np.ndarray, optional
+        Optional list of HWP angles to delete.
+    new_csv_path: str or Path, optional
+        Optional path to create the new csv. If set to None,
+        the csv will be edited in place.
+    
+    Returns:
+    ---------
+    df: Pandas DataFrame
+        Returns DataFrame for visual inspection of csv changes.
+        
+    """
+    hwp_order = np.array(hwp_order)
+
+    # Load to a DF and sort
+    df = pd.read_csv(csv_path)
+    hwp_angles = df['RET-ANG1']
+    if todelete:
+        todelete = np.array(todelete)
+        indices = np.where(np.isin(df['RET-ANG1'],todelete))[0]
+        df = df.drop(indices)
+
+    # Ensure the pattern loops correctly
+    npattern = len(hwp_angles) // len(hwp_order)
+    remainder = len(hwp_angles) % len(hwp_order)
+    hwp_pattern = np.tile(hwp_order,npattern)
+    hwp_pattern = np.concatenate((hwp_pattern,hwp_order[:remainder]))
+    
+    # Modify the DF
+    df["RET-ANG1"] = pd.Categorical(df['RET-ANG1'],categories=hwp_order,ordered=True)
+    df = df.sort_values(by=['D_IMRANG','RET-ANG1'])
+
+    if new_csv_path:
+        df.to_csv(new_csv_path,index=False)
+    else:
+        df.to_csv(csv_path,index=False)
+    return df
+
+    
 
 # Function to safely parse the stored array-like strings
 def parse_array_string(x):
@@ -179,10 +215,11 @@ def parse_array_string(x):
     return np.nan  # If neither, return NaN
 
 
-def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin):
+def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin,hwp_order=[[0,45,11.25,56.25,22.5,67.5,33.75,78.75]],hwp_angles_to_delete=[90]):
     """Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
     single sum, single difference, LCOUNTS, RCOUNTS, difference std,
     sum std, and wavelength values for a wavelength bin from each fits cube in the directory.
+    Default HWP order and deletion works for future double difference calculation. 
 
     FITS parameters are extracted from raw files, while single sum and difference are calculated using the
     fits cube data and the defined rectangular apertures.
@@ -205,12 +242,20 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
     wavelength_bin : int
         Index of the wavelength bin to analyze (0-based).
 
+    hwp_order: list or np.ndarray
+        List of desired HWP order. Default works for double difference calculations.
+
+    todelete: list or np.ndarray
+        List of HWP angles to delete. Default works
+        for double difference calculations. Set to None if you want to keep them all. 
+
     Returns:
     --------
     None
+        Write all info to a csv with these columns: "filepath", "D-IMRANG", "RET-ANG1", "single_sum", "single_diff",
+        "LCOUNTS","RCOUNTS", "sum_std", "diff_std", "wavelength_bin"
     """
     # check for valid file paths
-
     cube_directory_path = Path(cube_directory_path)
     raw_cube_path = Path(raw_cube_path)
     output_csv_path = Path(output_csv_path)
@@ -225,18 +270,15 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
         raise ValueError(f"This function is currently only compatible with lowres mode, with 22 wavelength bins.")
     
     # prepare output csv file
-
     output_csv_path = Path(output_csv_path)
     with open(output_csv_path, 'w') as f:
-        f.write("filepath,D_IMRANG,RET-ANG1,single_sum,norm_single_diff,LCOUNTS,RCOUNTS,sum_std,diff_std,wavelength_bin\n")
+        f.write("filepath,D_IMRANG,RET-ANG1,single_sum,single_diff,LCOUNTS,RCOUNTS,sum_std,diff_std,wavelength_bin\n")
 
         # iterate over all fits files in the directory
-
         for fits_file in sorted(cube_directory_path.glob('*.fits')):
             try:
 
                 # check if corresponding raw fits file exists
-                 
                 match = re.search(r"(\d{8})", fits_file.name)
                 if not match:
                     raise ValueError(f"Could not extract 8-digit ID from filename {fits_file.name}")
@@ -252,28 +294,30 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
                     ret_ang1 = raw_header.get("RET-ANG1", np.nan)
 
                 # round d_imrang to nearest 0.5
-               
                 d_imrang = (np.round(d_imrang * 2) / 2)
 
                 # calculate single sum and normalized single difference
-
-                single_sum, norm_single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff(fits_file, wavelength_bin)
+                single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff(fits_file, wavelength_bin)
 
                 # wavelength bins for lowres mode
-
                 bins = wavelength_bins
                 
                 # write to csv file
+                f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {single_sum}, {single_diff}, {LCOUNTS}, {RCOUNTS}, {sum_std}, {diff_std}, {bins[wavelength_bin]}\n")
 
-                f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {single_sum}, {norm_single_diff}, {LCOUNTS}, {RCOUNTS}, {sum_std}, {diff_std}, {bins[wavelength_bin]}\n")
+                # sort HWP angles
+                if hwp_order:
+                    arr_csv_HWP(output_csv_path,hwp_order,todelete=hwp_angles_to_delete)
+
             except Exception as e:
                 print(f"Error processing {fits_file}: {e}")
+                
     print(f"CSV file written to {output_csv_path}")
 
 
 def read_csv(file_path, mode= 'standard'):
     """Takes a CSV file path containing "D_IMRANG", 
-    "RET-ANG1", "single_sum", "norm_single_diff", "diff_std", and "sum_std",
+    "RET-ANG1", "single_sum", "single_diff", "diff_std", and "sum_std",
     for one wavelength bin and returns interleaved values, standard deviations, 
     and configuration list.
 
@@ -288,15 +332,17 @@ def read_csv(file_path, mode= 'standard'):
     Returns:
     -----------
     interleaved_values : np.ndarray
-        Interleaved values from "norm_single_diff" and "single_sum".
+        Interleaved values from "single_diff" and "single_sum".
     interleaved_stds : np.ndarray
         Interleaved standard deviations from "diff_std" and "sum_std".
     configuration_list : list
         List of dictionaries containing configuration data for each row.
+        
     """
     file_path = Path(file_path)
      
     # Read CSV file
+    
     df = pd.read_csv(file_path)
     
     # Convert relevant columns to float (handling possible conversion errors)
@@ -305,7 +351,7 @@ def read_csv(file_path, mode= 'standard'):
 
 
     # Interleave values from "diff" and "sum"
-    interleaved_values = np.ravel(np.column_stack((df["norm_single_diff"].values, df["single_sum"].values)))
+    interleaved_values = np.ravel(np.column_stack((df["single_diff"].values, df["single_sum"].values)))
 
     # Interleave values from "diff_std" and "sum_std"
     interleaved_stds = np.ravel(np.column_stack((df["diff_std"].values, df["sum_std"].values)))
