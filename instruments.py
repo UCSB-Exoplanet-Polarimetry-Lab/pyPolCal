@@ -694,11 +694,11 @@ def update_p0(p0, result):
         
 def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, 
     configuration_list, s_in = None, custom_function = None, 
-    process_dataset = None, process_errors = None, process_model = None,
+    process_dataset = None, process_errors = None, process_model = None, include_sums=True,
     bounds = None, mode = 'minimize'):
     '''
     Perform a minimization on a dataset, using a System Mueller Matrix model. This function
-    is customizable depending on fitting needs. All customizations are explained in detail
+    is highly customizable depending on fitting needs. All customizations are explained in detail
     in the parameter descriptions.
 
     Parameters
@@ -717,7 +717,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
                 {"pa": 0.233},
             }
 
-    system_mm: pyMuellerMat system Mueller matrix object
+    system_mm: pyMuellerMat.MuellerMat.SystemMuellerMatrix
         System Mueller matrix object generated from system dictionary and generate_system_mueller_matrix().
         Components in p0 dict and configuration list will be updated. More detailed instructions on how
         to generate these can be found in the minimization notebooks.
@@ -748,8 +748,21 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
 
     process_dataset: function, optional
         Function to process your data. Default is None, leaving your data as is for fitting. 
-        Use the function process_dataset() in this module to convert interleaved single 
-        sums and differences to double differences.
+        Use the function process_dataset() in this module to convert interleaved single sums and differences to double differences.
+
+    process_errors: function, optional
+        Function to process errors. Default is none, leaving your errors as is for fitting
+        Use the function process_errors() in this module to convert interleaved single sum and difference errors
+        to double difference errors. 
+    
+    process_model: function, optional
+        Function to process modeled L/R Wollaston beam intensities. Default is none, leaving L/R beams as is for fitting.
+        Use the function process_model() in this module to convert L/R intensities to double differences
+
+    include_sums: bool, optional
+        Whether or not to index out the second element of interleaved differences and sums.
+        Only use if model, data, and errors are processed. This is set as True because 
+        it works with VAMPIRES. This must be set to false for CHARIS.
 
     mode : str, optional
         "minimize" (default): uses scipy minimize and does not return errors. Minimizes
@@ -770,8 +783,8 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
     if mode == 'minimize':
         result = minimize(logl, p0_values, 
             args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
-                s_in, custom_function, process_dataset, process_errors, process_model), 
-                method='Nelder-Mead', bounds = bounds)
+                s_in, custom_function, process_dataset, process_errors, process_model,include_sums), 
+                method='L-BFGS-B', bounds = bounds)
         
 
     elif mode == 'least_squares':
@@ -779,7 +792,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
         upper_bounds = [bound[1] for bound in bounds]
         result = least_squares(cost, p0_values, 
             args=(p0_keywords, system_mm, dataset, errors, configuration_list,
-                s_in,custom_function,process_dataset,process_errors,process_model), method='trf', bounds = (lower_bounds, upper_bounds),verbose=2)
+                s_in,custom_function,process_dataset,process_errors,process_model,include_sums), method='trf', bounds = (lower_bounds, upper_bounds),verbose=2)
         J = result.jac
         residual = result.fun
         dof = len(residual) - len(result.x)  # degrees of freedom
@@ -798,7 +811,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
         logl_value = logl(result.x, p0_keywords, system_mm, dataset, errors, 
             configuration_list, s_in=s_in, custom_function=custom_function, 
             process_dataset=process_dataset, process_errors = process_errors, 
-            process_model = process_model)
+            process_model = process_model,include_sums=include_sums)
     if mode == 'least_squares':
         logl_value = -result.cost
         return result, logl_value,errors
@@ -807,7 +820,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
     
 def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
          s_in=None, custom_function=None, process_dataset=None, process_errors=None, 
-         process_model=None):
+         process_model=None,include_sums=True):
     """
     Compute the negative log-likelihood of a model given a dataset and system configuration
     for later use in scipy minimize.
@@ -819,29 +832,53 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     ----------
     p : list of float
         List of current parameter values to optimize (flattened).
+
     system_parameters : list of [str, str]
         List of [component_name, parameter_name] pairs corresponding to `p`.
+
     system_mm : pyMuellerMat.MuellerMat.SystemMuellerMatrix
         Mueller matrix model of the optical system.
+
     dataset : np.ndarray
         Interleaved observed data values (e.g., [dd1, ds1, dd2, ds2, ...]).
     errors : np.ndarray
         Measurement errors associated with `dataset`, in the same order.
-    configuration_list : list of dict
-        Each dict describes the instrument configuration for a measurement, including 
-        settings like HWP angle, FLC state, etc.
-    s_in : np.ndarray, optional
-        Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
-    logl_function : callable, optional
-        A custom function with signature `logl_function(p, model, data, errors)` 
-        that returns the log-likelihood. If None, default chi-squared is used.
-    process_dataset : callable, optional
-        Function to transform the dataset (e.g., normalize or reduce dimensionality).
-    process_errors : callable, optional
-        Function to propagate errors through the same transformation as `process_dataset`.
-    process_model : callable, optional
-        Function to apply the same transformation to the model predictions as to the data.
 
+    configuration_list: list of dict of dict
+        Instrument configuration for each measurement. Each component corresponds to a 
+        component in the system dictionary used to generate the system Mueller
+        Matrix and modifies the Mueller matrix to account for changing parts such as HWP angles, 
+        derotator angles, etc. Can be obtained from read_csv().
+
+        Example list for 2 measurements: 
+            [{'hwp': {'theta': 0.0}, 'image_rotator': {'theta': 45.0}}, 
+            {'hwp': {'theta': 11.25}, 'image_rotator': {'theta': 45.0}}]
+
+    s_in: list or np.ndarray, optional
+        Input Stokes vector (default: [1, 0, 0, 0])
+    
+    custom_function: function, optional
+        Custom negative likelihood or cost function. Use a negative likelihood function for
+        the default mode = 'minimize' and use a cost function for mode = 'least_squares'.
+        The default functions used are logl() and cost(), respectively. 
+
+    process_dataset: function, optional
+        Function to process your data. Default is None, leaving your data as is for fitting. 
+        Use the function process_dataset() in this module to convert interleaved single sums and differences to double differences.
+
+    process_errors: function, optional
+        Function to process errors. Default is none, leaving your errors as is for fitting
+        Use the function process_errors() in this module to convert interleaved single sum and difference errors
+        to double difference errors. 
+    
+    process_model: function, optional
+        Function to process modeled L/R Wollaston beam intensities. Default is none, leaving L/R beams as is for fitting.
+        Use the function process_model() in this module to convert L/R intensities to double differences
+
+    include_sums: bool, optional
+        Whether or not to index out the second element of interleaved differences and sums.
+        Only use if model, data, and errors are processed. This is set as True because 
+        it works with VAMPIRES. This must be set to false for CHARIS.
     Returns
     -------
     float
@@ -871,17 +908,21 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
 
     dataset = copy.deepcopy(processed_dataset)
     errors = copy.deepcopy(processed_errors)
-    # Note - the errors are floored at 1e-3 here, and this is larger than my typical double difference
-    # errors. This floor does not exist in least squares mode.
-    #errors = np.maximum(errors, 1e-3)
+    # Note - raised floor fromm 1e-3 to 1e-7 to be compatible with small normalized errors
+    errors = np.maximum(errors, 1e-7)
     # Calculate log likelihood
+    if include_sums is True: # take out differences
+        dataset=dataset[::2]
+        errors=errors[::2]
+        output_intensities=output_intensities[::2]
+
     if custom_function is not None:
-     return custom_function(p, output_intensities, dataset, errors)
+        return custom_function(p, output_intensities, dataset, errors)
     else:
-     return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
+        return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
 
 def cost(p, system_parameters, system_mm, dataset, errors, configuration_list, 
-         s_in=None,custom_function=None,process_dataset=None,process_errors=None,process_model=None):
+         s_in=None,custom_function=None,process_dataset=None,process_errors=None,process_model=None,include_sums=True):
     """
     Cost function that describes how well Mueller matrix parameters fit data.
 
@@ -901,33 +942,69 @@ def cost(p, system_parameters, system_mm, dataset, errors, configuration_list,
     configuration_list : list of dict
         Each dict describes the instrument configuration for a measurement, including 
         settings like HWP angle, FLC state, etc.
-    s_in : np.ndarray, optional
-        Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
+    s_in: list or np.ndarray, optional
+        Input Stokes vector (default: [1, 0, 0, 0])
+    
+    custom_function: function, optional
+        Custom negative likelihood or cost function. Use a negative likelihood function for
+        the default mode = 'minimize' and use a cost function for mode = 'least_squares'.
+        The default functions used are logl() and cost(), respectively. 
 
+    process_dataset: function, optional
+        Function to process your data. Default is None, leaving your data as is for fitting. 
+        Use the function process_dataset() in this module to convert interleaved single sums and differences to double differences.
+
+    process_errors: function, optional
+        Function to process errors. Default is none, leaving your errors as is for fitting
+        Use the function process_errors() in this module to convert interleaved single sum and difference errors
+        to double difference errors. 
+    
+    process_model: function, optional
+        Function to process modeled L/R Wollaston beam intensities. Default is none, leaving L/R beams as is for fitting.
+        Use the function process_model() in this module to convert L/R intensities to double differences
+
+    include_sums: bool, optional
+        Whether or not to index out the second element of interleaved differences and sums.
+        Only use if model, data, and errors are processed. This is set as True because 
+        it works with VAMPIRES. This must be set to false for CHARIS.
     Returns
     -------
-    float
-        The computed log-likelihood value (higher is better).
+    np.ndarray
+        1D vector of standardized residuals suitable for scipy.optimize.least_squares.
     """
 
     # print("Entered logl")
 
     # Generating a list of model predicted values for each configuration - already parsed
-    output_intensities = model(p, system_parameters, system_mm, configuration_list, 
+    output_intensities = model(p, system_parameters, system_mm, configuration_list, process_model=process_model, 
         s_in=s_in)
+    
     # Processing model converts raw L/R intensities to double differences
-    if process_model:
-        differences = process_model(output_intensities)
     # Processing errors converts interleaved single sum/difference errors to an array
     # of double difference errors
-    if process_errors:
-        errors = process_errors
-    if process_dataset:
-        dataset = process_dataset(dataset)
+    if process_errors is not None:
+        processed_errors = process_errors(copy.deepcopy(errors), 
+            copy.deepcopy(dataset))
+    elif process_errors is None:
+        processed_errors = copy.deepcopy(errors)
+    if process_dataset is not None:
+        processed_dataset = process_dataset(copy.deepcopy(dataset))
+    elif process_dataset is None:
+        processed_dataset = copy.deepcopy(dataset)
+
+    dataset = copy.deepcopy(processed_dataset)
+    errors = copy.deepcopy(processed_errors)
+    # Numerical floor to avoid division by tiny errors
+    errors = np.maximum(errors, 1e-7)
+    if include_sums is True:
+        dataset=dataset[::2]
+        errors=errors[::2]
+        output_intensities=output_intensities[::2]
     # Convert lists to numpy arrays, only differences used
-    residuals = differences - dataset
+    residuals = output_intensities - dataset
     #chi_squared = np.sum((residuals / errors) ** 2)
     cost = residuals / errors
+
     if custom_function is not None:
         return custom_function(p, output_intensities, dataset, errors)
     else:
@@ -935,7 +1012,7 @@ def cost(p, system_parameters, system_mm, dataset, errors, configuration_list,
 
 def model(p, system_parameters, system_mm, configuration_list, s_in=None, 
         process_model = None):
-    """Returns simulated L/R intensities for a given set of parameters based on
+    """Returns simulated L/R wollaston beam intensities for a given set of parameters based on
     parameter values, a dictionary detailing those values based on pyMuellerMat, 
     a pyMuellerMat system Mueller matrix, and a list of configurations for the 
     system Mueller matrix.
@@ -966,8 +1043,7 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
         Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
 
     process_model : callable, optional
-        Converts output intensities to double differences. CURRENTLY NOT
-        COMPATIBLE WITH SINGLE DIFFERENCES. 
+        Converts output intensities to double differences. 
 
     """
     
@@ -1010,86 +1086,6 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
     output_intensities = np.array(output_intensities)
 
     return output_intensities
-
-
-def generate_CHARIS_mueller_matrix(wavelength_bin, hwp_angle, imr_angle, beam, dict=False):
-    """ 
-    Generate a pyMuellerMuellerMat matrix object for CHARIS based on the given
-    wavelength bin, HWP angle, and derotator angle. Currently only works for lowres mode. 
-    Based on Joost 't Hart 2021
-
-    Parameters:
-    -----------
-    wavelength_bin : int
-        The index of the wavelength bin, zero based. (0 to 21 for 22 bins)
-    hwp_angle : float
-        The rotation angle of the half-wave plate in degrees.
-    imr_angle : float
-        The angle of the image rotator in degrees.
-    beam : str
-        The beam type, either 'o' for ordinary or 'e' for extraordinary.
-    dict : bool, optional
-        If True, returns a system dictionary instead of a Mueller matrix object. Default is False.
-    Returns:
-    --------
-    sys_mm : pyMuellerMat.MuellerMatrix
-        A Mueller matrix object representing the CHARIS system.
-    """
-    # check that it is in lowres mode
-
-    if wavelength_bin < 0 or wavelength_bin > 21:
-        raise ValueError("Wavelength bin must be between 0 and 21 for lowres mode.")
-    
-    # constants based on Joost 't Hart 2021
-
-    offset_imr = -0.0118 # derotator offset
-    offset_hwp = -0.002 # HWP offset
-    offset_cal = -0.035 # calibration polarizer offset
-    wavelength_bins = np.array([1159.5614, 1199.6971, 1241.2219, 1284.184 , 1328.6331, 1374.6208,
-                1422.2002, 1471.4264, 1522.3565, 1575.0495, 1629.5663, 1685.9701,
-                1744.3261, 1804.7021, 1867.1678, 1931.7956, 1998.6603, 2067.8395,
-                2139.4131, 2213.4641, 2290.0781, 2369.3441])
-    theta_imr = imr_angle
-    theta_hwp = hwp_angle
-    theta_cal = 0  # calibration polarizer angle
-    hwp_retardances = HWP_retardance(wavelength_bins) # based on physical model
-    imr_retardances = IMR_retardance(wavelength_bins) # based on physical model
-
-    # create the system dictionary
-
-    sys_dict = {
-        "components" : {
-            "wollaston" : {
-            "type" : "wollaston_prism_function",
-            "properties" : {"beam": beam},
-            "tag": "internal",
-            },
-            "image_rotator" : {
-                "type" : "general_retarder_function",
-                "properties" : {"phi": imr_retardances[wavelength_bin], "theta": theta_imr + offset_imr},
-                "tag": "internal",
-            },
-            "hwp" : {
-                "type" : "general_retarder_function",
-                "properties" : {"phi": hwp_retardances[wavelength_bin], "theta": theta_hwp + offset_hwp},
-                "tag": "internal",
-            },
-            "lp" : {
-                "type": "general_linear_polarizer_function_with_theta",
-                "properties": {"theta": offset_cal + theta_cal},
-                "tag": "internal",
-            }}
-    }
-
-    # generate Mueller matrix object
-
-    system_mm = generate_system_mueller_matrix(sys_dict)
-
-    if dict:
-        return sys_dict
-    else:
-        return system_mm
-
 
 
 def build_differences_and_sums(intensities, normalized=False):
@@ -1152,8 +1148,7 @@ def process_model(model_intensities):
     # Take the negative of this as was done before
     interleaved_values = -interleaved_values
     # Extracting differences (done this way for easy reversal to old format of interleaving)
-    double_diffs = interleaved_values[::2]
-    return double_diffs
+    return interleaved_values
 def process_dataset(input_dataset): 
     # Making sure that input_dataset is a numpy array
     input_dataset = np.array(input_dataset)
@@ -1213,14 +1208,16 @@ def process_errors(input_errors, input_dataset):
     # Interleave errors to maintain order
     interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
     # Double diffs extracted this way for ease of reverting back to the original setup
-    double_diff_errors = interleaved_errors[::2]
 
-    return double_diff_errors
+
+    return interleaved_errors
 
 # streamline process for all wavelength bins
 # SET UP FOR DDs from NSD
 def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):
     """
+    Mainly a wrapper function for minimize_system_mueller_matrix(). I find it easier to just modify
+    this function every time I do a new fit than to use minimize_system_mueller_matrix().
     Fits a Mueller matrix for one wavelength bin from internal calibration data and saves
     the updated configuratio dictionary to a JSON file. Creates a plot
     of each updated model vs the data. Initial guesses for all fits are from Joost t Hart 2021.
@@ -1234,7 +1231,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     ----------
     csv_path : str or Path
         Path to the CSV file containing the calibration data. Must contain the columns "D_IMRANG", 
-    "RET-ANG1", "single_sum", "norm_single_diff", "diff_std", and "sum_std".
+    "RET-ANG1", "single_sum", "single_diff", "diff_std", and "sum_std".
 
     wavelength_bin : int
         The index of the wavelength bin to fit (0-21 for CHARIS).
@@ -1257,6 +1254,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     """
     # Check file paths
     filepath = Path(csv_path)
+    new_config_dict_path=Path(new_config_dict_path)
     if not filepath.exists() or filepath.suffix != ".csv":
         raise ValueError("Please provide a valid .csv file.")
     if plot_path:
@@ -1266,15 +1264,16 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     if new_config_dict_path.suffix != ".json":
         raise ValueError("Please provide a valid .json file for saving the new system dictionary.")
     new_config_dict_path = Path(new_config_dict_path)
-    # Read in data
 
+    # Read in data
     interleaved_values, interleaved_stds, configuration_list = read_csv(filepath)
-    # plot function needs my interleaved values unaltered (which they will be in intermediary funcs)
+
+    # this works, not really sure why
     interleaved_values_forplotfunc = copy.deepcopy(interleaved_values)
     interleaved_stds_forlplotfunc = copy.deepcopy(interleaved_stds)
-    interleaved_stds = process_errors(interleaved_stds,interleaved_values)[::2] # just diffs
-    interleaved_values = process_dataset(interleaved_values)[::2] # just diffs
-    configuration_list = configuration_list 
+    #interleaved_stds = process_errors(interleaved_stds,interleaved_values)[::2] # just diffs
+    #interleaved_values = process_dataset(interleaved_values)[::2] # just diffs
+    #configuration_list = configuration_list 
 
     # Loading in past fits 
 
@@ -1286,7 +1285,6 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
     hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
     epsilon_cal = 1
-    offset_pickoff = 0.02
 
     # Define instrument configuration as system dictionary
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
@@ -1346,14 +1344,14 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     hwp_phi_bounds = (hwp_phi-hwpstd, hwp_phi+hwpstd)
     imrstd = 0.1*np.abs(imr_phi)
     imr_phi_bounds = (imr_phi-imrstd, imr_phi+imrstd)
-    imrostd = 0.1*np.abs(offset_imr)
-    offset_imr_bounds = (offset_imr-imrostd, offset_imr+imrostd)
-    hwpostd = 0.1*np.abs(offset_hwp)
-    offset_hwp_bounds = (offset_hwp-hwpostd, offset_hwp+hwpostd)
+    #imrostd = 0.1*np.abs(offset_imr)
+    #offset_imr_bounds = (offset_imr-imrostd, offset_imr+imrostd)
+    #hwpostd = 0.1*np.abs(offset_hwp)
+    #offset_hwp_bounds = (offset_hwp-hwpostd, offset_hwp+hwpostd)
     epsilon_cal_bounds = (0.9*epsilon_cal, 1)
-    calostd = 0.1 *np.abs(offset_cal)
-    offset_cal_bounds = (-15, 15)
-    dichroic_phi_bounds = (0,np.pi)
+    #calostd = 0.1 *np.abs(offset_cal)
+    #offset_cal_bounds = (-15, 15)
+    #dichroic_phi_bounds = (0,np.pi)
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
     # Modify this if you want to change the parameters
@@ -1369,8 +1367,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     while abs(previous_logl - new_logl) > 0.01*abs(previous_logl):
         if iteration > 1:
             previous_logl = new_logl
+        # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, bounds = [imr_phi_bounds,offset_bounds,hwp_phi_bounds,offset_bounds,offset_bounds,epsilon_cal_bounds],mode='VAMPIRES')
+            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=True, bounds = [imr_phi_bounds,offset_bounds,hwp_phi_bounds,offset_bounds,offset_bounds,epsilon_cal_bounds],mode='least_squares')
         print(result)
 
         # Update p0 with new values
@@ -1412,7 +1411,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # Print residuals
     print(len(interleaved_values), len(diffs_sums2))
-    residuals = interleaved_values - diffs_sums2[::2]
+    data_dd = process_dataset(interleaved_values)[::2]
+    model_dd = diffs_sums2[::2]
+    residuals = data_dd - model_dd
     print("Residuals range:", residuals.min(), residuals.max())
     print("Error:", error)
 
@@ -1434,143 +1435,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 # function for calculating single sum and difference
 
     
-def plot_single_differences(csv_file_path, plot_save_path=None):
-    """Plot norm single differences as a function of the HWP angle for one 
-    wavelength bin from a CSV containing headers "D_IMRANG" , "RET-ANG1" , 
-    "norm_single_diff", and "wavelength_bin".
-    This can be obtained from the write_fits_info_to_csv function.
 
-    Parameters:
-    -----------
-    csv_file_path : str or Path
-        Path to the specified CSV file.
-
-    plot_save_path : str or Path, optional
-        If provided, the plot will be saved to this path. Must end with '.png'.
-
-    Returns: 
-    --------
-    None
-    """
-    # check if csv_file_path is a valid file path
-
-    csv_file_path = Path(csv_file_path)
-    if not csv_file_path.is_file():
-        raise FileNotFoundError(f"File not found: {csv_file_path}")
-    
-    # read csv file into pandas dataframe
-
-    df = pd.read_csv(csv_file_path)
-
-    # check if necessary columns are present
-
-    required_columns = ['D_IMRANG', 'RET-ANG1', 'norm_single_diff', 'wavelength_bin']
-    for col in required_columns:
-        if col not in df.columns:
-            raise ValueError(f"Column '{col}' is missing from the CSV file.")
-        
-    # check for multiple wavelength bins
-    unique_bins = df['wavelength_bin'].unique()
-    if len(unique_bins) > 1:
-        raise ValueError("CSV file contains multiple wavelength bins. Please filter to a single bin before plotting.")
-    
-    # extract data for plotting
-
-    hwp_angles = df['RET-ANG1'].values
-    single_diffs = df['norm_single_diff'].values
-    wavelength_bin = df['wavelength_bin'].values[0]
-    derotator_angles = df['D_IMRANG'].values
-
-    # plot single differences as a function of HWP angle for each derotator angle
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    for derotator_angle in np.unique(derotator_angles):
-        mask = derotator_angles == derotator_angle
-        # get the data for this derotator angle
-        hwp_subset = hwp_angles[mask]
-        diffs_subset = single_diffs[mask]
-        # sort by HWP angle
-        sort_order = np.argsort(hwp_subset)
-        ax.plot(hwp_subset[sort_order], diffs_subset[sort_order], 
-            marker='o', label=f'{derotator_angle}°')
-    ax.set_xlabel('HWP Angle (degrees)')
-    ax.set_ylabel('Normalized Single Difference')
-    ax.set_title(f'Single Differences vs HWP Angle at {wavelength_bin} nm')
-    ax.legend(loc='lower right', fontsize='small', title= r'IMR $\theta$')
-    ax.grid()
-    plt.show()
-
-    # save plot if a path is provided
-
-    if plot_save_path:
-        plot_save_path = Path(plot_save_path)
-        if not plot_save_path.parent.is_dir():
-            raise NotADirectoryError(f"Directory does not exist: {plot_save_path.parent}")
-        if not plot_save_path.suffix == '.png':
-            raise ValueError("Plot save path must end with '.png'.")
-        fig.savefig(plot_save_path)
-        print(f"Plot saved to {plot_save_path}")
-
-# function for quick csv and plotting
-def quick_data_all_bins(cube_directory_path, raw_directory_path, csv_directory, plot_directory):
-    """Plot norm single differences as a function of the HWP angle 
-    for each derotator angle and write a CSV containing headers "D_IMRANG" , "RET-ANG1" , 
-    "norm_single_diff", and "wavelength_bin". Perform this for all 21 wavelength bins.
-    
-    Parameters:
-    -----------
-    cube_directory_path : str or Path
-        Path to the directory containing CHARIS fits cubes.
-        
-    raw_directory_path : str or Path
-        Path to the directory containing the matching raw CHARIS FITS files.
-
-    csv_directory : str or Path
-        Directory where the output csv files will be created.
-
-    plot_directory : str or Path
-        Directory where the output plots will be created.
-        
-    Returns:
-    --------
-    None
-    """
-    # check if cube_directory_path and raw_directory_path are valid paths
-    csv_directory = Path(csv_directory)
-    plot_directory = Path(plot_directory)
-    cube_directory_path = Path(cube_directory_path)
-    raw_directory_path = Path(raw_directory_path)
-    
-    if not cube_directory_path.is_dir():
-        raise NotADirectoryError(f"Directory not found: {cube_directory_path}")
-    if not raw_directory_path.is_dir():
-        raise NotADirectoryError(f"Raw directory does not exist: {raw_directory_path}")
-    if not csv_directory.is_dir():
-        raise NotADirectoryError(f"CSV directory does not exist: {csv_directory}")
-    if not plot_directory.is_dir():
-        raise NotADirectoryError(f"Plot directory does not exist: {plot_directory}")
-    # iterate over all wavelength bins
-
-    for bin in range(0, 22):
-
-        # write csv file for each bin
-
-        csv_file_path = Path(csv_directory) / f'charis_cube_info_bin{bin}.csv'
-        write_fits_info_to_csv(
-            cube_directory_path=cube_directory_path,
-            raw_cube_path=raw_directory_path,
-            output_csv_path=csv_file_path,
-            wavelength_bin=bin
-        )
-
-        # plot single differences for each bin
-
-        plot_save_path = Path(plot_directory) / f'diffvshwp_bin{bin}.png'
-        plot_single_differences(csv_file_path, plot_save_path)
-# CURRENTLY CONFIGURED FOR CHARIS DDs
 def plot_data_and_model(interleaved_values, interleaved_stds, model, 
-    configuration_list, imr_theta_filter=None, wavelength=None, save_path = None, mode = 'VAMPIRES',title=None):
+    configuration_list, imr_theta_filter=None, wavelength=None, save_path = None, include_sums=True,title=None):
     """
     Plots double difference and double sum measurements alongside model predictions,
     grouped by image rotator angle (D_IMRANG). Optionally filters by a specific 
@@ -1600,14 +1467,18 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     wavelength : str or int, optional
         Wavelength (e.g., 670 or "670") to display as a centered title with "nm" units 
         (e.g., "670nm").
-    mode : str
-        Default is VAMPIRES. If mode is CHARIS normalized single differences will be used.
+
+    include_sums : bool, optional
+        Default is True, plotting the double sums as well as the differences. If false, only the
+        double differences are plotted, a residual bar is included, and some other plotting things are updated.
+
     title : str, optional
         Default is the wavelength.
 
     Returns
     -------
-    fig, ax
+    fig, ax : matplotlib Figure and Axes
+        A tuple containing the Figure and Axes objects of the plot.
     """
     # Calculate double differences and sums from interleaved single differences if in VAMPIRES mode 
     
@@ -1626,11 +1497,8 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     # Group by image_rotator theta
     dd_by_theta = {}
     ds_by_theta = {}
-    if mode ==  'VAMPIRES':
-        index = 2
-    if mode == 'CHARIS':
-        index = 2
-    for i, config in enumerate(configuration_list[::index]):
+
+    for i, config in enumerate(configuration_list[::2]):
         hwp_theta = config["hwp"]["theta"]
         imr_theta = round(config["image_rotator"]["theta"], 1)
 
@@ -1651,11 +1519,11 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         ds_by_theta[imr_theta]["stds"].append(ds_stds[i])
         ds_by_theta[imr_theta]["model"].append(ds_model[i])
     # Create the plots
-    if mode == 'VAMPIRES':
+    if include_sums is True:
         num_plots = 2
         fig, axes = plt.subplots(1, num_plots, figsize=(14, 6), sharex=True)
 
-    elif mode == 'CHARIS':
+    elif include_sums is False:
         fig, axarr = plt.subplots(
         2, 1, 
         figsize=(10, 6), 
@@ -1666,7 +1534,7 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         small_ax = axarr[1]
 
     # Double Difference plot
-    if mode == 'VAMPIRES':
+    if include_sums is True:
         ax = axes[0]
         for theta, d in dd_by_theta.items():
            err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
@@ -1684,7 +1552,7 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         ax.set_xlabel(r"HWP $\theta$  (deg)")
         ax.set_ylabel("Double Sum")
         ax.legend(title=r"IMR $\theta$")
-    elif mode == 'CHARIS':
+    elif include_sums is False:
         for theta, d in dd_by_theta.items():
            err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
            color = err[0].get_color()
@@ -1729,7 +1597,7 @@ def plot_fluxes(csv_path, plot_save_path=None):
     Returns: 
     --------
     fig, ax : matplotlib Figure and Axes
-    A tuple containing the Figure and Axes objects of the plot.
+        A tuple containing the Figure and Axes objects of the plot.
 
     """
     
@@ -1913,8 +1781,9 @@ def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=Non
 def plot_polarimetric_efficiency(json_dir, bins, save_path=None, title=None):
     """
     Plots the polarimetric efficiency from JSON configuration dictionaries vs derotator angle.
-    Only works if all JSON dictionaries are in a directory labeled
-    by bin. Returns an array of the polarimetric efficiency values.
+    Works with the result of the fit_CHARIS_mueller_matrix_by_bin() function
+    Only works if all 22 JSON dictionaries are in a directory labeled
+    by bin: formatted bin{bin} in the filepath. Returns an array of the polarimetric efficiency values.
     This plot is similar to the one in van Holstein 2020. Also plots
     where measured derotator angles would be with an 'x' marker.
     
