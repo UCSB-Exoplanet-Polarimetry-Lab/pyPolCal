@@ -740,17 +740,16 @@ def process_errors(input_errors, input_dataset):
     differences = input_dataset[::2]
     sums = input_dataset[1::2]
     double_sums = sums[::2] + sums[1::2]
-    double_differences = differences[::2]-differences[1::2]
-    denominator = (sums[::2] + sums[1::2])  # This is used for normalization
-
+    differences2 = differences[::2]-differences[1::2]
+    squared_diff_errors_sqrt = np.sqrt(differences_errors[::2]**2+differences_errors[1::2]**2)
+    squared_sum_errors_sqrt = np.sqrt(sums_errors[::2]**2+sums_errors[1::2]**2)
+    # using hypot for numerical stability
+    num = np.hypot(double_sums*squared_diff_errors_sqrt,differences2*squared_sum_errors_sqrt)
     # Compute propagated errors for double differences
-    double_differences_errors = np.sqrt((differences_errors[::2]**2+differences_errors[1::2]**2 + \
-    double_sums**-2*double_differences**2*(sums_errors[::2]**2+sums_errors[1::2]**2))/double_sums**2)
-
+    double_differences_errors = num/double_sums**2
 
     # Compute propagated errors for double sums
-    double_sums_errors = np.sqrt(sums_errors[::2]**2+sums_errors[1::2]**2)
-
+    double_sums_errors = np.hypot(sums_errors[::2],sums_errors[1::2])
 
     # Interleave errors to maintain order
     interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
