@@ -210,7 +210,7 @@ def run_mcmc(
     nwalkers=64, nsteps=10000, pool_processes=None, 
     s_in=np.array([1, 0, 0, 0]), process_dataset=None, 
     process_errors=None, process_model=None, resume=True,
-    include_log_f=False, log_f=-3.0,plot=False, mode='VAMPIRES'
+    include_log_f=False, log_f=-3.0,plot=False, include_sums=True
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
@@ -235,7 +235,8 @@ def run_mcmc(
     bounds : dict
         Dictionary of (low, high) tuples for each parameter.
     logl_function : callable
-        Log-likelihood function to evaluate model fit.
+        Log-likelihood function to evaluate model fit. CURRENTLY DOESN'T WORK, 
+        USES logl_with_logf()
     output_h5_file : str
         Path to the output HDF5 file used to store MCMC results.
     nwalkers : int, optional
@@ -255,13 +256,15 @@ def run_mcmc(
     resume : bool, optional
         If True and the HDF5 file exists, resume from saved state.
     include_log_f : bool, optional
-        If True, appends a `log_f` noise inflation parameter to the parameter list.
+        If True, appends a `log_f` noise inflation parameter to the parameter list. CURRENTLY DOES NOT WORK,
+        LOGF IS ALWAYS INCLUDED.
     log_f0 : float, optional
         Initial value for `log_f` if `include_log_f` is True.
     plot : bool, optional
         If True, plots every 100 steps
-    mode : str, optional
-        If 'CHARIS', models norm single differences and single sums
+    include_sums : bool
+        Whether or not to take out double sums from modeling. The default is true
+        because this works for VAMPIRES. It does not work for CHARIS.
     Returns
     -------
     sampler : emcee.EnsembleSampler
@@ -278,7 +281,8 @@ def run_mcmc(
 
     ndim = len(p0_values)
 
-    resume = os.path.exists(output_h5_file)
+    resume = resume and os.path.exists(output_h5_file)
+   
     backend = emcee.backends.HDFBackend(output_h5_file)
 
     if not resume or backend.iteration == 0:
@@ -286,17 +290,10 @@ def run_mcmc(
 
     pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
 
-    if mode == 'VAMPIRES':
-         args = (
-            system_mm, dataset, errors, configuration_list, p_keys, s_in,
-            process_model, process_dataset, process_errors, 
-            priors, bounds, logl_with_logf, 'VAMPIRES'
-        )
-    if mode == 'CHARIS':
-        args = (
-            system_mm, dataset, errors, configuration_list, p_keys, s_in,
-            process_model, process_dataset, process_errors, 
-            priors, bounds, logl_with_logf, 'CHARIS'
+    args = (
+        system_mm, dataset, errors, configuration_list, p_keys, s_in,
+        process_model, process_dataset, process_errors, 
+        priors, bounds, logl_with_logf, include_sums
         )
 
     with Pool(processes=pool_processes) as pool:
@@ -340,6 +337,61 @@ def run_mcmc(
             old_tau=tau
     return sampler, p_keys
 
+
+def logl_with_logf(theta, system_mm, dataset, errors, configuration_list, 
+                   system_parameters, s_in, process_model, process_dataset, 
+                   process_errors, include_sums=True):
+    """
+    Log-likelihood function that includes a noise inflation parameter log_f.
+
+    Parameters
+    ----------
+    theta : jnp.ndarray
+        Parameter vector, with the last entry being log_f.
+    system_mm : SystemMuellerMatrix
+        Optical system Mueller matrix.
+    dataset : np.ndarray
+        Observed data.
+    errors : np.ndarray
+        Measurement uncertainties.
+    configuration_list : list
+        List of measurement configurations.
+    system_parameters : list
+        List of (component, parameter) keys for fitting.
+    s_in : np.ndarray
+        Input Stokes vector.
+    process_model, process_dataset, process_errors : callable
+        Optional transformation functions for model, dataset, and errors.
+    include_sums : bool
+        Whether or not to take out double sums from modeling. The default is true
+        because this works for VAMPIRES. It does not work for CHARIS.
+
+    Returns
+    -------
+    float
+        Log-likelihood value.
+    """
+    log_f = theta[-1]
+    theta = theta[:-1]
+
+    # Generate model output
+    
+    model_output = model(theta, system_parameters, system_mm, configuration_list,
+                            s_in=s_in, process_model=process_model)
+
+    dataset = jnp.array(dataset)
+    errors = jnp.array(errors)
+    if process_errors is not None:
+        errors = process_errors(copy.deepcopy(errors), copy.deepcopy(dataset))
+    if process_dataset is not None:
+        dataset = process_dataset(copy.deepcopy(dataset))
+
+    if include_sums is False:
+     dataset = dataset[::2]
+     errors=errors[::2]
+     model_output = model_output[::2]
+    sigma2 = errors**2 + jnp.exp(2 * log_f)
+    return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
 
 
 # def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_list):
@@ -506,65 +558,7 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
     output_intensities = np.array(output_intensities)
 
     return output_intensities
-# UPDATED FOR DOUBLE DIFFERENCES WITH CHARIS
-def logl_with_logf(theta, system_mm, dataset, errors, configuration_list, 
-                   system_parameters, s_in, process_model, process_dataset, 
-                   process_errors, mode='VAMPIRES'):
-    """
-    Log-likelihood function that includes a noise inflation parameter log_f.
 
-    Parameters
-    ----------
-    theta : jnp.ndarray
-        Parameter vector, with the last entry being log_f.
-    system_mm : SystemMuellerMatrix
-        Optical system Mueller matrix.
-    dataset : np.ndarray
-        Observed data.
-    errors : np.ndarray
-        Measurement uncertainties.
-    configuration_list : list
-        List of measurement configurations.
-    system_parameters : list
-        List of (component, parameter) keys for fitting.
-    s_in : np.ndarray
-        Input Stokes vector.
-    process_model, process_dataset, process_errors : callable
-        Optional transformation functions for model, dataset, and errors.
-    mode : str
-        Default mode is VAMPIRES. If mode is CHARIS, the model will
-        output normalized single differences and sums.
-
-    Returns
-    -------
-    float
-        Log-likelihood value.
-    """
-    log_f = theta[-1]
-    theta = theta[:-1]
-
-    # Generate model output
-    if mode == 'VAMPIRES':
-        model_output = model(theta, system_parameters, system_mm, configuration_list,
-                            s_in=s_in, process_model=process_model)
-    if mode == 'CHARIS':
-        model_output = model(theta, system_parameters, system_mm, configuration_list,
-                            s_in=s_in, process_model=None) 
-        model_output = process_model(model_output, mode='CHARIS')
-    if mode == 'CHARIS':
-     dataset = dataset[::2]
-     errors=errors[::2]
-    dataset = jnp.array(dataset)
-    errors = jnp.array(errors)
-    if process_errors is not None:
-        errors = process_errors(copy.deepcopy(errors), copy.deepcopy(dataset))
-    if process_dataset is not None:
-        dataset = process_dataset(copy.deepcopy(dataset))
-
-    dataset = dataset[::2]
-    errors = errors[::2]
-    sigma2 = errors**2 + jnp.exp(2 * log_f)
-    return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
 
 def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
          s_in=None, logl_function=None, process_dataset=None, process_errors=None, 
@@ -668,75 +662,48 @@ def normalize_diffs(differences,sums):
     diffs=differences/sums
     return diffs,sums
 # ONLY USES DIFFERENCES
-def process_model(model_intensities, mode= 'VAMPIRES'): 
+def process_model(model_intensities):
     """
-    Processes the model intensities to compute differences and sums,
-    and formats them into a single interleaved array. 
+    Processes the model intensities to compute double differences.
+    
     
     Parameters
     ----------
     model_intensities : list or np.ndarray
         List or array of model intensities, expected to be in pairs.
-    mode : str, optional
-        Mode of processing, either 'VAMPIRES' or 'CHARIS'. 
-        Default is 'VAMPIRES'. VAMPIRES returns double differences
-        and CHARIS returns single differences."""
     
-    # Making sure the mode exists
-    if mode not in ['VAMPIRES', 'CHARIS']:
-        raise ValueError("Mode must be either 'VAMPIRES' or 'CHARIS'.")
+    Returns
+    --------
+    double_differences : np.ndarray
+        Array of simulated double differences
     
-    # Making sure that model_intensities is a numpy array
-
+    """
+    
     model_intensities = np.array(model_intensities)
 
-    # print("Entered process_model")
 
-    
+   
+    differences, sums = build_differences_and_sums(model_intensities)
+    double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
-    if mode == 'VAMPIRES':
-        differences, sums = build_differences_and_sums(model_intensities)
-        double_differences, double_sums = build_double_differences_and_sums(differences, sums)
-
-    # print("Differences shape: ", np.shape(differences))
-    # print("Sums shape: ", np.shape(sums))
-    # print("Double Differences shape: ", np.shape(double_differences))
-    # print("Double Sums shape: ", np.shape(double_sums))
 
     #Format this into one array. 
-    # only use diffs
-    if mode == 'VAMPIRES': 
         # Interleave the double differences and double sums
-        interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))[::2]
+    interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
          
         # NOTE: Subtracting same FLC state orders (A - B) as Miles
-    
-    
-    if mode == 'CHARIS':
-        # Interleave the norm single differences and single sums
-        differences, sums = build_differences_and_sums(model_intensities)
-        normdiffs, sums = normalize_diffs(differences,sums)
-        interleaved_values = np.ravel(np.column_stack((normdiffs, sums)))
-        # as of 7/30 we're just going to use differences
-        interleaved_values = interleaved_values[::2]
-
     # Take the negative of this as was done before
     interleaved_values = -interleaved_values
-
+    # Extracting differences (done this way for easy reversal to old format of interleaving)
     return interleaved_values
 
-def process_dataset(input_dataset): # EDITED FOR CHARIS DOUBLE DIFFS- CHANGE BACK
+def process_dataset(input_dataset): 
     # Making sure that input_dataset is a numpy array
-    # print("Entered process_dataset")
-    # print("Pre np.array Input dataset: ", np.shape(input_dataset))
     input_dataset = np.array(input_dataset)
-    # print("Post np.array Input dataset: ", np.shape(input_dataset))
-
-    
     sums = input_dataset[1::2]
-    differences = input_dataset[::2]*sums
-    # print("Differences: ", differences)
-    # print("Sums shape: ", np.shape(sums))
+    differences = input_dataset[::2]
+   
+
 
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
@@ -745,7 +712,7 @@ def process_dataset(input_dataset): # EDITED FOR CHARIS DOUBLE DIFFS- CHANGE BAC
     # Format this into one array.
     return interleaved_values
 
-def process_errors(input_errors, input_dataset): #EDITED TO WORK WITH CHARIS DOUBLE DIFFS- FIX LATER
+def process_errors(input_errors, input_dataset): 
     """
     Propagates errors through the same transformations as `process_dataset`.
     
@@ -756,55 +723,40 @@ def process_errors(input_errors, input_dataset): #EDITED TO WORK WITH CHARIS DOU
     Returns:
         numpy array: Propagated errors for double differences and sums.
     """
-    # print("Entered process_errors")
 
     # Ensure input is a NumPy array
     input_errors = np.array(input_errors)
     input_dataset = np.array(input_dataset)
-    
-    # print("Pre-processing Errors shape: ", np.shape(input_errors))
-    # print("Pre-processing Dataset shape: ", np.shape(input_dataset))
+
 
     # Compute errors for differences and sums
+    # differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+    # sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+    # Extract difference and sum errors
     differences_errors = input_errors[::2]
     sums_errors = input_errors[1::2]
-    # print("Differences Errors shape: ", np.shape(differences_errors))
-    # print("Sums Errors shape: ", np.shape(sums_errors))
-
-    # Compute double differences and double sums
-    differences = input_dataset[::2] - input_dataset[1::2]
-    sums = input_dataset[::2] + input_dataset[1::2]
-
+    
+    # Compute single differences and single sums
+    differences = input_dataset[::2]
+    sums = input_dataset[1::2]
+    double_sums = sums[::2] + sums[1::2]
+    double_differences = differences[::2]-differences[1::2]
     denominator = (sums[::2] + sums[1::2])  # This is used for normalization
 
     # Compute propagated errors for double differences
-    # Fixed to avoid overflow
-    M = max(np.max(np.abs(sums)), np.max(np.abs(differences)), 1e-10)  # avoid zero division
+    double_differences_errors = np.sqrt((differences_errors[::2]**2+differences_errors[1::2]**2 + \
+    double_sums**-2*double_differences**2*(sums_errors[::2]**2+sums_errors[1::2]**2))/double_sums**2)
 
-    scaled_sums = sums / M
-    scaled_diffs = differences / M
-    numerator = (
-        (scaled_sums[::2] + scaled_sums[1::2])**2 * (differences_errors[::2]**2 + differences_errors[1::2]**2) +
-        (scaled_diffs[::2] - scaled_diffs[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
-    )
-    denominator = (scaled_sums[::2] + scaled_sums[1::2])
-
-    double_differences_errors = (M**-2) * np.sqrt(numerator) / (denominator**2)
 
     # Compute propagated errors for double sums
-    double_sums_errors = np.sqrt(
-        (sums[::2] + sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2) + 
-        (sums[::2] - sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
-    ) / (denominator**2) 
+    double_sums_errors = np.sqrt(sums_errors[::2]**2+sums_errors[1::2]**2)
 
-    # print("Double Differences Errors shape: ", np.shape(double_differences_errors))
-    # print("Double Sums Errors shape: ", np.shape(double_sums_errors))
 
     # Interleave errors to maintain order
-   
     interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
+    # Double diffs extracted this way for ease of reverting back to the original setup
 
-    # print("Final interleaved Errors shape: ", np.shape(interleaved_errors))
+
     return interleaved_errors
 
 #######################################################
