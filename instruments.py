@@ -215,7 +215,7 @@ def parse_array_string(x):
     return np.nan  # If neither, return NaN
 
 
-def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin,hwp_order=[[0,45,11.25,56.25,22.5,67.5,33.75,78.75]],hwp_angles_to_delete=[90]):
+def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin,hwp_order=[0,45,11.25,56.25,22.5,67.5,33.75,78.75],hwp_angles_to_delete=[90]):
     """Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
     single sum, single difference, LCOUNTS, RCOUNTS, difference std,
     sum std, and wavelength values for a wavelength bin from each fits cube in the directory.
@@ -230,7 +230,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
     
     Parameters:
     -----------
-    fits_directory_path : str or Path
+    cube_directory_path : str or Path
         Path to the directory containing CHARIS fits cubes.
         
     raw_cube_path : str or Path
@@ -305,13 +305,13 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
                 # write to csv file
                 f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {single_sum}, {single_diff}, {LCOUNTS}, {RCOUNTS}, {sum_std}, {diff_std}, {bins[wavelength_bin]}\n")
 
-                # sort HWP angles
-                if hwp_order:
-                    arr_csv_HWP(output_csv_path,hwp_order,todelete=hwp_angles_to_delete)
-
             except Exception as e:
                 print(f"Error processing {fits_file}: {e}")
-                
+
+    # sort HWP angles
+    if hwp_order:
+        arr_csv_HWP(output_csv_path,hwp_order,todelete=hwp_angles_to_delete)
+
     print(f"CSV file written to {output_csv_path}")
 
 
@@ -385,10 +385,12 @@ def read_csv(file_path, mode= 'standard'):
     
 
 def read_csv_physical_model_all_bins(csv_dir):
-    """Does the same thing as read_csv() but reads all 22 csvs written
+    """
+    Does the same thing as read_csv() but reads all 22 csvs written
     in a directory for all 22 CHARIS wavelength bins and puts everything into one array.
     Also adds wavelength bin to the configuration dictionary for use with custom
     pyMuellerMat common mm functions. 
+
     Parameters:
     -----------
     csv_dir : Path or str
@@ -771,6 +773,18 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
         a cost function cost() as an input. Error estimation
         procedure from Van Holstein et al. 2020. 
 
+    Returns
+    --------
+
+    tuple
+        [0] result: scipy.optimize.OptimizeResult
+            If mode = 'minimize': scipy minimize() result object
+            If mode = 'least_sqares': scipy least_squares() result object
+        [1] logl_value/cost: float
+            If mode = 'minimize': negative log likelihood value
+            If mode = 'least_sqares': cost value 
+        [2] error (only if mode='least_squares'): float
+            Error estimated as in Van Holstein et al. 2020
     '''
     
     if s_in is None:
@@ -804,8 +818,6 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
             cov = s_res_squared * np.linalg.pinv(J.T @ J)
         errors = np.sqrt(np.diag(cov))
                     
-            
-    
     # Saving the final result's logl value
     if mode == 'minimize':
         logl_value = logl(result.x, p0_keywords, system_mm, dataset, errors, 
@@ -813,8 +825,8 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
             process_dataset=process_dataset, process_errors = process_errors, 
             process_model = process_model,include_sums=include_sums)
     if mode == 'least_squares':
-        logl_value = -result.cost
-        return result, logl_value,errors
+        cost_value = -result.cost
+        return result, cost_value,errors
     elif mode =='minimize':
         return result, logl_value
     
@@ -1164,6 +1176,57 @@ def process_dataset(input_dataset):
     # Format this into one array.
     return interleaved_values
 
+def process_errors_og(input_errors, input_dataset): 
+    """
+    Propagates errors through the same transformations as `process_dataset`.
+    
+    Args:
+        input_errors (numpy array): Original errors in intensities.
+        input_dataset (numpy array): Original dataset, needed for normalization steps.
+        
+    Returns:
+        numpy array: Propagated errors for double differences and sums.
+    """
+
+    # Ensure input is a NumPy array
+    input_errors = np.array(input_errors)
+    input_dataset = np.array(input_dataset)
+
+
+    # Compute errors for differences and sums
+    # differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+    # sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+    # Extract difference and sum errors
+    differences_errors = input_errors[::2]
+    sums_errors = input_errors[1::2]
+    
+    # Compute single differences and single sums
+    
+    differences = input_dataset[::2]
+    sums = input_dataset[1::2]
+
+    denominator = (sums[::2] + sums[1::2])  # This is used for normalization
+
+    # Compute propagated errors for double differences
+    double_differences_errors = np.sqrt(
+        (sums[::2] + sums[1::2])**2 * (differences_errors[::2]**2 + differences_errors[1::2]**2) + 
+        (differences[::2] - differences[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
+    ) / (denominator**2)
+
+    # Compute propagated errors for double sums
+    double_sums_errors = np.sqrt(
+        (sums[::2] + sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2) + 
+        (sums[::2] - sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
+    ) / (denominator**2)
+
+
+    # Interleave errors to maintain order
+    interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
+    # Double diffs extracted this way for ease of reverting back to the original setup
+
+
+    return interleaved_errors
+
 def process_errors(input_errors, input_dataset): 
     """
     Propagates errors through the same transformations as `process_dataset`.
@@ -1182,27 +1245,26 @@ def process_errors(input_errors, input_dataset):
 
 
     # Compute errors for differences and sums
-    differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
-    sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
-
-
-    # Compute double differences and double sums
-    differences = input_dataset[::2] - input_dataset[1::2]
-    sums = input_dataset[::2] + input_dataset[1::2]
-
+    # differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+    # sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+    # Extract difference and sum errors
+    differences_errors = input_errors[::2]
+    sums_errors = input_errors[1::2]
+    
+    # Compute single differences and single sums
+    differences = input_dataset[::2]
+    sums = input_dataset[1::2]
+    double_sums = sums[::2] + sums[1::2]
+    double_differences = differences[::2]-differences[1::2]
     denominator = (sums[::2] + sums[1::2])  # This is used for normalization
 
     # Compute propagated errors for double differences
-    double_differences_errors = np.sqrt(
-        (sums[::2] + sums[1::2])**2 * (differences_errors[::2]**2 + differences_errors[1::2]**2) + 
-        (differences[::2] - differences[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
-    ) / (denominator**2)
+    double_differences_errors = np.sqrt((differences_errors[::2]**2+differences_errors[1::2]**2 + \
+    double_sums**-2*double_differences**2*(sums_errors[::2]**2+sums_errors[1::2]**2))/double_sums**2)
+
 
     # Compute propagated errors for double sums
-    double_sums_errors = np.sqrt(
-        (sums[::2] + sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2) + 
-        (sums[::2] - sums[1::2])**2 * (sums_errors[::2]**2 + sums_errors[1::2]**2)
-    ) / (denominator**2)
+    double_sums_errors = np.sqrt(sums_errors[::2]**2+sums_errors[1::2]**2)
 
 
     # Interleave errors to maintain order
@@ -1248,7 +1310,8 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     Returns
     -------
     error : np.array
-      An array of the errors for each parameter. 
+      An array of the errors for each parameter. Estimated using the method from van Holstein et al. 2020.
+      van Holstein et al. 2020.
     fig : MatPlotLib figure object
     ax : MatPlotLib axis object
     """
@@ -1276,10 +1339,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     #configuration_list = configuration_list 
 
     # Loading in past fits 
-
-    offset_imr = -0.0118 # derotator offset
-    offset_hwp = -0.002# HWP offset
-    offset_cal = -0.035 # calibration polarizer offset
+    offset_imr = 0.18519 # derotator offset
+    offset_hwp = -0.88466# HWP offset
+    offset_cal = -0.42809 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
@@ -1288,7 +1350,6 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # Define instrument configuration as system dictionary
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
-
     system_dict = {
         "components" : {
             "wollaston" : {
@@ -1318,27 +1379,21 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
             }}
     }
 
-
     # Converting system dictionary into system Mueller Matrix object
-
     system_mm = generate_system_mueller_matrix(system_dict)
 
     # Define initial guesses for our parameters 
-    # Modify this if you want to change the parameters
 
+    # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
         "image_rotator" : 
-            {"phi": imr_phi, "delta_theta": offset_imr},
+            {"phi": imr_phi},
         "hwp" :
-            {"phi": hwp_phi, "delta_theta": offset_hwp},
-        "lp_rot":
-            {'pa':offset_cal},
-        "lp" : 
-            {"epsilon": epsilon_cal},
+            {"phi": hwp_phi},
     }
 
     # Define some bounds
-    # Modify this if you want to change the parameters or minimization bounds
+    # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS, ADD NEW BOUNDS OR CHANGE THEM
     offset_bounds = (-5,5)
     hwpstd = 0.1*np.abs(hwp_phi)
     hwp_phi_bounds = (hwp_phi-hwpstd, hwp_phi+hwpstd)
@@ -1354,7 +1409,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     #dichroic_phi_bounds = (0,np.pi)
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
-    # Modify this if you want to change the parameters
+ 
 
     # Counters for iterative fitting
 
@@ -1363,13 +1418,13 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     new_logl = 0
 
     # Perform iterative fitting
-
+    # MODIFY THE BOUNDS INPUT HERE IF YOU WANT TO CHANGE PARAMETERS
     while abs(previous_logl - new_logl) > 0.01*abs(previous_logl):
         if iteration > 1:
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=True, bounds = [imr_phi_bounds,offset_bounds,hwp_phi_bounds,offset_bounds,offset_bounds,epsilon_cal_bounds],mode='least_squares')
+            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=True, bounds = [imr_phi_bounds,hwp_phi_bounds],mode='least_squares')
         print(result)
 
         # Update p0 with new values
@@ -1400,9 +1455,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # Plot the modeled and observed values
     if plot_path:
-        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], mode='CHARIS',save_path=plot_path)
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], include_sums=False,save_path=plot_path)
     else:
-        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], mode='CHARIS')
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin],include_sums=False)
     
     # Print the Mueller matrix
 
@@ -2051,8 +2106,6 @@ def model_data(json_dir, csv_path=None):
     df : pd.DataFrame
         A DataFrame containing all fitted retardances by wavelength and offset angles with errors.
     """
-    # Check filepaths
-
     json_dir = Path(json_dir)
     if not json_dir.is_dir():
         raise ValueError(f"{json_dir} is not a valid directory.")
@@ -2060,21 +2113,17 @@ def model_data(json_dir, csv_path=None):
         csv_path = Path(csv_path)
     
     # Create dataframe
-
-    df = pd.DataFrame(columns=['wavelength_bin', 'hwp_retardance',  'imr_retardance', 'calibration_polarizer_diattenuation',
-                      'hwp_offset', 'hwp_offset_std','imr_offset','imr_offset_std','cal_offset','cal_offset_std'])
+    # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
+    df = pd.DataFrame(columns=['wavelength_bin', 'hwp_retardance',  'imr_retardance'])
 
    # Load JSON files
-
     json_files = sorted(json_dir.glob("*.json"))
 
     # Check for correct file amount
-
     if len(json_files) != 22:
         raise ValueError(f"Expected 22 JSON files, found {len(json_files)}.")
     
     # Check for bins
- 
     for f in json_files:
      try:
         match = re.search(r'bin(\d+)', f.name)
@@ -2088,7 +2137,7 @@ def model_data(json_dir, csv_path=None):
     sorted_files = sorted(json_files, key=lambda f: int(re.search(r'bin(\d+)', f.name).group(1)))
 
     # Extract retardances and offsets
-
+    # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
     hwp_retardances = []
     imr_retardances = []
     hwp_offsets = []
@@ -2098,53 +2147,50 @@ def model_data(json_dir, csv_path=None):
     for f in sorted_files:
         with open(f, 'r') as file:
             data = json.load(file)
-            if 'hwp' not in data or 'image_rotator' not in data or 'lp' not in data:
-                raise ValueError(f"Required components not found in {f.name}.")
-            
+            # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
             # Extract retardances
             hwp_retardance = data['hwp']['phi']
             imr_retardance = data['image_rotator']['phi']
             # Extract lp diattenuation
-            lp_epsilon = data['lp']['epsilon']
+            #lp_epsilon = data['lp']['epsilon']
             # Extract offset angles 
-            hwp_offset = data['hwp']['delta_theta']
-            imr_offset = data['image_rotator']['delta_theta']
-            lp_offset = data['lp_rot']['pa'] 
+            #hwp_offset = data['hwp']['delta_theta']
+            #imr_offset = data['image_rotator']['delta_theta']
+            #lp_offset = data['lp_rot']['pa'] 
             hwp_retardances.append(hwp_retardance)
             imr_retardances.append(imr_retardance)
-            hwp_offsets.append(hwp_offset)
-            imr_offsets.append(imr_offset)
-            lp_offsets.append(lp_offset)
-            lp_epsilons.append(lp_epsilon)
+            #hwp_offsets.append(hwp_offset)
+            #imr_offsets.append(imr_offset)
+            #lp_offsets.append(lp_offset)
+            #lp_epsilons.append(lp_epsilon)
 
     # Find offset averages/errors
 
-    hwp_offset_error = np.std(hwp_offsets)
-    imr_offset_error = np.std(imr_offsets)
-    lp_offset_error = np.std(lp_offsets)
-    hwp_offset = np.mean(hwp_offsets)
-    imr_offset = np.mean(imr_offsets)
-    lp_offset = np.mean(lp_offsets)
+    # hwp_offset_error = np.std(hwp_offsets)
+    # imr_offset_error = np.std(imr_offsets)
+    # lp_offset_error = np.std(lp_offsets)
+    # hwp_offset = np.mean(hwp_offsets)
+    # imr_offset = np.mean(imr_offsets)
+    # lp_offset = np.mean(lp_offsets)
 
     # Replace offset angles with averages
 
-    hwp_offsets = [hwp_offset] * len(hwp_offsets)
-    imr_offsets = [imr_offset] * len(imr_offsets)
-    lp_offsets = [lp_offset] * len(lp_offsets)
+    # hwp_offsets = [hwp_offset] * len(hwp_offsets)
+    # imr_offsets = [imr_offset] * len(imr_offsets)
+    # lp_offsets = [lp_offset] * len(lp_offsets)
 
     # Make errors lists
 
-    hwp_offset_errors = [hwp_offset_error] * len(hwp_offsets)
-    imr_offset_errors = [imr_offset_error] * len(imr_offsets)
-    lp_offset_errors = [lp_offset_error] * len(lp_offsets)
+    # hwp_offset_errors = [hwp_offset_error] * len(hwp_offsets)
+    # imr_offset_errors = [imr_offset_error] * len(imr_offsets)
+    # lp_offset_errors = [lp_offset_error] * len(lp_offsets)
 
     # Fill DataFrame
 
-    df['wavelength_bin'], df['hwp_retardance'], df['imr_retardance'], \
-    df['calibration_polarizer_diattenuation'], df['hwp_offset'],df['hwp_offset_std'], \
-    df['imr_offset'], df['imr_offset_std'], df['cal_offset'], df['cal_offset_std'] = \
-        (wavelength_bins, hwp_retardances, imr_retardances, lp_epsilons, hwp_offsets , hwp_offset_errors, imr_offsets,
-         imr_offset_errors, lp_offsets, lp_offset_errors)   
+    # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
+
+    df['wavelength_bin'], df['hwp_retardance'], df['imr_retardance']= \
+        (wavelength_bins, hwp_retardances, imr_retardances)   
     
     # Save to CSV if specified
 
@@ -2190,9 +2236,11 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
     -------
     fig, ax, small_ax
     """
-    # Calculate double differences and sums from interleaved single differences if in VAMPIRES mode 
-    
+    # Process into double diffs
+    interleaved_stds = process_errors(interleaved_stds,interleaved_values)
+    interleaved_values = process_dataset(interleaved_values)
 
+    
     # Extract double differences and double sums
     dd_values = interleaved_values[::2]
     ds_values = interleaved_values[1::2]
@@ -2206,7 +2254,7 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
     ds_by_theta = {}
    
     
-    for i, config in enumerate(configuration_list):
+    for i, config in enumerate(configuration_list[::2]):
         imr_theta = config["image_rotator"]["theta"]
         hwp_theta = config["hwp"]["theta"]
 
@@ -2261,7 +2309,7 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
     small_ax.xaxis.set_major_locator(MultipleLocator(10))
     small_ax.grid(which='major', axis='x', linestyle='-', linewidth=0.5, color='gray')
     small_ax.tick_params(axis='y', which='minor', labelleft=False)
-    ax.set_ylabel("Single Difference")
+    ax.set_ylabel("Double Difference")
     ax.legend(title=r"HWP $\theta$", fontsize=10, loc='upper right')
     ax.grid()
 
