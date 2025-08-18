@@ -38,7 +38,8 @@ wavelength_bins = np.array([1159.5614, 1199.6971, 1241.2219, 1284.184 , 1328.633
 
 def single_sum_and_diff(fits_cube_path, wavelength_bin):
     """Calculate single difference and sum between left and right beam 
-    rectangular aperture photometry from a CHARIS fits cube. Add L/R counts and stds to array.
+    rectangular aperture photometry from CHARIS internal calibration
+    fits cubes. Add L/R counts and stds to array.
     
     Parameters:
     -----------
@@ -77,10 +78,10 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
     hdul = fits.open(fits_cube_path)
     cube_data = hdul[1].data
 
-    # check if data is a 3d cube (wavelength, x, y)
+    # check if data is a 3d cube (wavelength, y, x)
 
     if cube_data.ndim != 3:
-        raise ValueError("Input data must be a 3D cube (wavelength, x, y).")
+        raise ValueError("Input data must be a 3D cube (wavelength, y, x).")
         
     # check if wavelength_bin is within bounds
     if not (0 <= wavelength_bin < cube_data.shape[0]):
@@ -104,7 +105,7 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
 
     # calculate normalized single difference and sum
     single_sum = phot_rbeam['aperture_sum'][0] + phot_lbeam['aperture_sum'][0]
-    norm_single_diff = (phot_rbeam['aperture_sum'][0] - phot_lbeam['aperture_sum'][0]) #/ single_sum
+    single_diff = (phot_rbeam['aperture_sum'][0] - phot_lbeam['aperture_sum'][0]) #/ single_sum
 
     # get left and right counts
     left_counts = phot_lbeam['aperture_sum'][0]
@@ -112,7 +113,7 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
 
     # Assume Poissanian noise and propagate error
     sum_std = diff_std = np.sqrt(left_counts+right_counts)
-    return (single_sum, norm_single_diff, left_counts, right_counts, sum_std, diff_std)
+    return (single_sum, single_diff, left_counts, right_counts, sum_std, diff_std)
 
 # function to fix corrupted hwp data
 def fix_hwp_angles(csv_file_path, nderotator=8):
