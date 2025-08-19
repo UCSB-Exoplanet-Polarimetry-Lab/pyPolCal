@@ -293,8 +293,9 @@ def read_csv(file_path, mode= 'standard'):
     file_path : str or Path
         Path to the CSV.
     mode : str, optional
-        If mode = 'physical_model_CHARIS', the wavelengths will be added
+        If mode = 'wavelength', the wavelengths will be added
         to the configuration list for physical model fitting.
+        If mode = 'm3', it will add the parallactic and altitude angles to the configuration list.
 
     Returns:
     -----------
@@ -329,12 +330,21 @@ def read_csv(file_path, mode= 'standard'):
         # Extracting values from relevant columns
         hwp_theta = row["RET-ANG1"]
         imr_theta = row["D_IMRANG"]
-        if mode == 'physical_model_CHARIS': # add wavelength
+        if mode == 'wavelength': # add wavelength
             wavelength = row["wavelength_bin"]
             # Building dictionary with wavelength
             row_data = {
                 "hwp": {"theta": hwp_theta, "wavelength": wavelength},
                 "image_rotator": {"theta": imr_theta, "wavelength": wavelength}
+            }
+        elif mode == 'm3':
+            a = row['a']
+            p = row['p']
+            row_data = {
+                "hwp": {"theta": hwp_theta},
+                "image_rotator": {"theta": imr_theta},
+                "altitude_rot": {"pa":a},
+                "parang_rot": {"pa":p}
             }
         else:
             # Building dictionary
@@ -345,7 +355,7 @@ def read_csv(file_path, mode= 'standard'):
 
         # Append two configurations for diff and sum
         configuration_list.append(row_data)
-    if mode == 'physical_model_CHARIS':
+    if mode == 'wavelength':
         return interleaved_values, interleaved_stds, configuration_list
     else:
         return interleaved_values, interleaved_stds, configuration_list

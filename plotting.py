@@ -145,7 +145,7 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         for theta, d in dd_by_theta.items():
            err = ax.errorbar(d["hwp_theta"], d["values"], yerr=d["stds"], fmt='o', label=f"{theta}°")
            color = err[0].get_color()
-           ax.plot(d["hwp_theta"], d["model"], '-', color=color)
+           ax.plot(d["hwp_theta"], d["model"], color=color)
            residuals =  ((np.array(d["values"]) - np.array(d["model"])))*100
            small_ax.scatter(d['hwp_theta'],residuals,color=color)
         small_ax.axhline(0, color='black', linewidth=1)
