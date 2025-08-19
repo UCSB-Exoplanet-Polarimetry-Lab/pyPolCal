@@ -1,22 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.io import fits
-from astropy.wcs import WCS
-from astropy.coordinates import Angle
-from photutils.aperture import SkyCircularAperture 
 from photutils.aperture import CircularAperture,CircularAnnulus
 from photutils.aperture import aperture_photometry
 from astropy.visualization import simple_norm
 from pathlib import Path
 import re
-import pandas as pd
 from photutils.aperture import ApertureStats
-from photutils.datasets import make_wcs
-from photutils.centroids import (centroid_1dg, centroid_2dg,
-                                 centroid_com, centroid_quadratic,centroid_sources)
+from photutils.centroids import (centroid_com, centroid_sources)
 from constants import wavelength_bins
-import instruments as inst
 import traceback
+from csv_tools import arr_csv_HWP
 
 def charis_centroids_one_psf(image_data,initial_guess_l,initial_guess_r,box_size,wavelength_bin):
     """
@@ -322,6 +316,6 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
 
     # sort HWP angles
     if hwp_order:
-        inst.arr_csv_HWP(output_csv_path,hwp_order,todelete=hwp_angles_to_delete)
+        arr_csv_HWP(output_csv_path,hwp_order,todelete=hwp_angles_to_delete)
 
     print(f"CSV file written to {output_csv_path}")
