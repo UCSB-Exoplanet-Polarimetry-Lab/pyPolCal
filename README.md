@@ -1,3 +1,19 @@
 # vampires_calibration
 
-A python library containing functions for fitting/plotting a Mueller Matrix model for SCExAO VAMPIRES and SCExAO CHARIS's spectropolarimetric mode. You can fit with a physically motivated model or directly fit for retardances and diattenuation. The Mueller matrix model is created using the pyMuellerMat physical_models branch (https://github.com/maxwellmb/pyMuellerMat). The calibration data is handled by writing csvs and the fitting results are stored in .txt files. There are functions to fit with MCMC, scipy minimize, and scipy least_squares. There are tutorial notebooks for VAMPIRES and CHARIS in their respective folders.
+This Python library provides tools for fitting and visualizing Mueller matrix models for **SCExAO VAMPIRES** and the **SCExAO CHARIS spectropolarimetric mode**.  
+
+You can fit either:
+- A **physically motivated model** 
+- A **direct fit** of retardances and diattenuations.
+
+## Features
+- Create Mueller matrix models with `pyMuellerMat` physical_models branch
+- Fit using:
+  - `emcee`
+  - `scipy.optimize.minimize`
+  - `scipy.optimize.least_squares`
+- Calibration data handling via CSVs
+- Save fitting results as `.txt` files
+- Tutorial Jupyter notebooks for both VAMPIRES and CHARIS (see `VAMPIRES/` and `CHARIS/` folders)
+
+---
