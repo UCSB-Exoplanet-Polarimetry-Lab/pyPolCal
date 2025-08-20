@@ -6,3 +6,7 @@
 	path = scexao_calibration/pyMuellerMat
 	url = https://github.com/maxwellmb/pyMuellerMat.git
 	branch = physical_models
+[submodule "scexao_polcal/pyMuellerMat"]
+	path = scexao_polcal/pyMuellerMat
+	url = https://github.com/maxwellmb/pyMuellerMat.git
+	branch = physical_models
