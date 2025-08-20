@@ -1,0 +1,14 @@
+numpy==1.26.4
+astropy==6.0.1
+scipy
+matplotlib
+pyMuellerMat@ git+https://github.com/maxwellmb/pyMuellerMat@physical_models
+pandas
+photutils
+
+[mcmc]
+h5py
+corner
+emcee
+jax
+jaxlib
