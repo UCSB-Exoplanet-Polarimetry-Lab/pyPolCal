@@ -1,0 +1,4 @@
+[submodule "pyMuellerMat"]
+	path = pyMuellerMat
+	url = https://github.com/maxwellmb/pyMuellerMat.git
+	branch = physical_models
