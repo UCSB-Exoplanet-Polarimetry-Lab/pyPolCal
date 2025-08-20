@@ -7,7 +7,7 @@ You can fit either:
 - A **direct fit** of retardances and diattenuations.
 
 ## Features
-- Create Mueller matrix models with `pyMuellerMat` physical_models branch
+- Create Mueller matrix models with `pyMuellerMat` `physical_models` branch
 - Fit using:
   - `emcee`
   - `scipy.optimize.minimize`
