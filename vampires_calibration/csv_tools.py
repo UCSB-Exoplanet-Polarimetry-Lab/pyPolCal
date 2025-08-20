@@ -5,7 +5,7 @@ from photutils.aperture import RectangularAperture
 from photutils.aperture import aperture_photometry
 import pandas as pd
 import re
-from constants import wavelength_bins
+from vampires_calibration.constants import wavelength_bins
 
 ###############################################################
 ###### Functions related to reading/writing in .csv values ####

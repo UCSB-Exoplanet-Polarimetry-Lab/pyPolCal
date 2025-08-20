@@ -1,12 +1,12 @@
 import numpy as np
 from pathlib import Path
 import copy
-from constants import wavelength_bins
+from vampires_calibration.constants import wavelength_bins
 from pyMuellerMat.physical_models.charis_physical_models import IMR_retardance, HWP_retardance
-from csv_tools import read_csv
-from utils import generate_system_mueller_matrix,process_dataset,process_errors,process_model,parse_configuration
-from fitting import update_p0,update_system_mm,minimize_system_mueller_matrix,model
-from plotting import plot_data_and_model
+from vampires_calibration.csv_tools import read_csv
+from vampires_calibration.utils import generate_system_mueller_matrix,process_dataset,process_errors,process_model,parse_configuration
+from vampires_calibration.fitting import update_p0,update_system_mm,minimize_system_mueller_matrix,model
+from vampires_calibration.plotting import plot_data_and_model
 import json
 
 def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):

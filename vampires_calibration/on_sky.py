@@ -8,12 +8,12 @@ from pathlib import Path
 import re
 from photutils.aperture import ApertureStats
 from photutils.centroids import (centroid_com, centroid_sources)
-from constants import wavelength_bins
-from utils import generate_system_mueller_matrix,process_dataset,process_errors,process_model,parse_configuration
-from fitting import update_p0,update_system_mm,minimize_system_mueller_matrix,model
-from plotting import plot_data_and_model
+from vampires_calibration.constants import wavelength_bins
+from vampires_calibration.utils import generate_system_mueller_matrix,process_dataset,process_errors,process_model,parse_configuration
+from vampires_calibration.fitting import update_p0,update_system_mm,minimize_system_mueller_matrix,model
+from vampires_calibration.plotting import plot_data_and_model
 import traceback
-from csv_tools import arr_csv_HWP,read_csv
+from vampires_calibration.csv_tools import arr_csv_HWP,read_csv
 import json
 from pyMuellerMat.physical_models.charis_physical_models import HWP_retardance,IMR_retardance
 import copy

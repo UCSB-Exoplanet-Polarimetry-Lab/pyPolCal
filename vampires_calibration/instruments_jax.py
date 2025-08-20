@@ -6,16 +6,13 @@ from pyMuellerMat import common_mms as cmm
 from pyMuellerMat import MuellerMat
 from scipy.optimize import minimize
 import copy
-from collections import defaultdict
 import matplotlib.pyplot as plt
 import emcee
-import mcmc_helper_funcs_jax as mcmc
+from vampires_calibration import mcmc_helper_funcs_jax as mcmc
 from multiprocessing import Pool
 import os
-from functools import partial
-import jax
 import jax.numpy as jnp
-from jax import jit, lax
+from jax import jit
 
 #######################################################
 ###### Functions related to reading in .csv values ####

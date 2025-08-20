@@ -6,18 +6,18 @@ import corner
 import json
 import h5py
 import numpy as np
-from utils import (
+from vampires_calibration.utils import (
     parse_configuration, generate_system_mueller_matrix,
     update_system_mm, generate_measurement, process_model, process_dataset,
     process_errors
 )
-from csv_tools import read_csv
+from vampires_calibration.csv_tools import read_csv
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 import re
 from pathlib import Path
 import emcee
-from constants import wavelength_bins
+from vampires_calibration.constants import wavelength_bins
 import pandas as pd
 
 #######################################

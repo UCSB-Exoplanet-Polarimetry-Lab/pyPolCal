@@ -1,4 +1,4 @@
-from utils import parse_configuration,update_system_mm,generate_measurement
+from vampires_calibration.utils import parse_configuration,update_system_mm,generate_measurement
 import numpy as np
 from scipy.optimize import minimize, least_squares
 import copy
