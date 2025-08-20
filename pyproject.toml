@@ -4,6 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vampires_calibration"
+readme = "README.md"
 version = "0.1.0"
 description = "Polarimetric calibration package for SCExAO CHARIS and VAMPIRES"
 authors = [
