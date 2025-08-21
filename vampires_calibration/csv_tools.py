@@ -414,3 +414,35 @@ def read_csv_physical_model_all_bins(csv_dir):
         configuration_list_all.extend(configuration_list)
 
     return interleaved_values_all, interleaved_stds_all, configuration_list_all
+
+def match_fits_tags(cubedir):
+    """
+    Renames DPP processed data to original CHARIS ID.
+    
+    Parameters
+    ----------
+    cubedir : str
+        Directory containing the processed CHARIS data with format n*.fits.
+        Anything not following this format will be ignored.
+
+    Returns
+    -------
+    None
+        Renames files in the cubedir to match the original CHARIS ID.
+    """
+
+    cubedir = Path(cubedir)
+
+    # iterate through all fits files in the cubedir, following dpp format of n*.fits
+    for proc_file in cubedir.glob('n*.fits'):
+
+        # grab the fits header containing the original id
+        with fits.open(proc_file) as hdul:
+            header = hdul[0].header
+            original_id = header.get('ORIGNAME', None)
+            if not original_id:
+                raise ValueError(f"No ORIGINAME found in header of {proc_file.name}")
+            
+        # rename the file to match the original CHARIS ID
+        proc_file.rename(cubedir / f"CRSA{original_id}_flat_cube.fits")
+        print(f"Renamed {proc_file.name} to CRSA{original_id}_flat_cube.fits")
