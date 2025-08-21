@@ -167,7 +167,7 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
     return (single_sum, single_diff, left_counts, right_counts, sum_std, diff_std)
 
 
-def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_path,centroid_guesses,aperture_radii, box_size,wavelength_bin,hwp_order=[0,45,11.25,56.25,22.5,67.5,33.75,78.75],hwp_angles_to_delete=[90],bkgd_annuli_radii=None,plot=False):
+def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_path,centroid_guesses,aperture_radii, box_size,wavelength_bin,hwp_order=[0,45,11.25,56.25,22.5,67.5,33.75,78.75],hwp_angles_to_delete=[90],bkgd_annuli_radii=None,plot_every_x=None):
     """
     
     Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
@@ -225,8 +225,8 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
         Inside and outside radii length in pixels for the local background subtraction
         annulus of the right Wollaston aperture [inside,outside].
 
-    plot: bool, optional
-        Plots apertures against image data.
+    plot_every_x: int, optional
+        Plots apertures against image data every xth file processed.
 
     Returns:
     --------
@@ -258,7 +258,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
         f.write("filepath,D_IMRANG,RET-ANG1,single_sum,single_diff,LCOUNTS,RCOUNTS,sum_std,diff_std,p,a,wavelength_bin\n")
 
         # iterate over all fits files in the directory
-        for fits_file in sorted(cube_directory_path.glob('*.fits')):
+        for fits_file,idx in enumerate(sorted(cube_directory_path.glob('*.fits'))):
             try:
 
                 # check if corresponding raw fits file exists
@@ -305,16 +305,17 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
                 # write to csv file
                 f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {single_sum}, {single_diff}, {LCOUNTS}, {RCOUNTS}, {sum_std}, {diff_std},{d_parang},{d_alt}, {bins[wavelength_bin]}\n")
 
-                if plot:
-                    fig, ax = plt.subplots(figsize=(10,6))
-                    snorm = simple_norm(image_data,'log',)
-                    im = ax.imshow(image_data, origin='lower', cmap='inferno',norm=snorm)
-                    aper_l.plot(ax,color='white')
-                    aper_r.plot(ax,color='white')
-                    if bkgd_annuli_radii:
-                        CircularAnnulus(centroids[0],bkgd_annuli_radii[0][0],bkgd_annuli_radii[0][1]).plot(ax,color='white',alpha=0.5)
-                        CircularAnnulus(centroids[1],bkgd_annuli_radii[1][0],bkgd_annuli_radii[1][1]).plot(ax,color='white',alpha=0.5)
-                    fig.colorbar(im,ax=ax)
+                if plot_every_x:
+                    if idx % plot_every_x == 0:  # plot every xth file
+                        fig, ax = plt.subplots(figsize=(10,6))
+                        snorm = simple_norm(image_data,'log',)
+                        im = ax.imshow(image_data, origin='lower', cmap='inferno',norm=snorm)
+                        aper_l.plot(ax,color='white')
+                        aper_r.plot(ax,color='white')
+                        if bkgd_annuli_radii:
+                            CircularAnnulus(centroids[0],bkgd_annuli_radii[0][0],bkgd_annuli_radii[0][1]).plot(ax,color='white',alpha=0.5)
+                            CircularAnnulus(centroids[1],bkgd_annuli_radii[1][0],bkgd_annuli_radii[1][1]).plot(ax,color='white',alpha=0.5)
+                        fig.colorbar(im,ax=ax)
                     
 
             except Exception as e:
