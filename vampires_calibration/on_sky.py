@@ -258,7 +258,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
         f.write("filepath,D_IMRANG,RET-ANG1,single_sum,single_diff,LCOUNTS,RCOUNTS,sum_std,diff_std,p,a,wavelength_bin\n")
 
         # iterate over all fits files in the directory
-        for fits_file,idx in enumerate(sorted(cube_directory_path.glob('*.fits'))):
+        for idx,fits_file in enumerate(sorted(cube_directory_path.glob('*.fits'))):
             try:
 
                 # check if corresponding raw fits file exists
