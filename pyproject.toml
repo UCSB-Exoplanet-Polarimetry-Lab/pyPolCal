@@ -21,18 +21,16 @@ dependencies = [
     "matplotlib",
     "pyMuellerMat @ git+https://github.com/maxwellmb/pyMuellerMat@physical_models",
     "pandas",
-    "photutils"
+    "photutils",
+    "h5py",
+    "corner",
+    "emcee",
+    "jax",
+    "jaxlib",
+    "tqdm"
 ]
 
-# Optional dependencies (install with: pip install .[mcmc])
-[project.optional-dependencies]
-mcmc = [
-"h5py",
-"corner",
-"emcee",
-"jax",
-"jaxlib"
-]
+
 
 [tool.black]
 line-length = 88
