@@ -705,7 +705,7 @@ def plot_fluxes(csv_path, plot_save_path=None):
     "RCOUNTS", "RET-ANG1", "D_IMRANG" and "wavelength_bin".
     This can be obtained from the write_fits_info_to_csv function.
 
-    Parameters:
+    Parameters
     -----------
     csv_path : str or Path
         Path to the specified CSV file.
@@ -713,7 +713,7 @@ def plot_fluxes(csv_path, plot_save_path=None):
     plot_save_path : str or Path, optional
         If provided, the plot will be saved to this path. Must end with '.png'.
 
-    Returns: 
+    Returns
     --------
     fig, ax : matplotlib Figure and Axes
         A tuple containing the Figure and Axes objects of the plot.
@@ -954,7 +954,7 @@ def plot_pol_efficiency_from_data(csv_dir, bins, save_path=None, title=None):
     polarized source. This assumes 8 derotator angles and 9 hwp angles. Can plot
     multiple wavelength bins simultaneously.
     
-    Parameters:
+    Parameters
     -----------
     csv_path : str or Path
         Path to the CSV directory containing csvs with relevant bins.
@@ -964,7 +964,7 @@ def plot_pol_efficiency_from_data(csv_dir, bins, save_path=None, title=None):
 
     title : str, optional
         Title of the plot. If None, a default title will be used.
-    Returns:
+    Returns
     --------
     pol_efficiency : np.array
         Polarimetric efficiency calculated from the interleaved values.

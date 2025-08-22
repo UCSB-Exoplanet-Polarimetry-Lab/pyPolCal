@@ -12,14 +12,14 @@ def update_p0(p0, result):
     Updates the existing p0 dictionary in place using result_values from scipy.optimize,
     based on the parameter order returned by parse_configuration.
 
-    Parameters:
+    Parameters
     -----------
     p0 : dict
         The original nested parameter dictionary (will be updated in-place).
     result_values : list or np.ndarray
         Optimized parameter values from scipy.optimize (e.g., result.x).
 
-    Returns:
+    Returns
     --------
     None
         The function modifies `p0` directly.
@@ -397,6 +397,11 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
 
     process_model : callable, optional
         Converts output intensities to double differences. 
+
+    Returns
+    --------
+    np.ndarray
+        Simulated intensities [L,R,L,R..]
 
     """
     

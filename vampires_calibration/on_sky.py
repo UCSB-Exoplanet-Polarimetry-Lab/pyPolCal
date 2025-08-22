@@ -27,14 +27,14 @@ def charis_centroids_one_psf(image_data,initial_guess_l,initial_guess_r,box_size
 
     Parameters
     -----------
-    image_data: np.3darray
+    image_data: np.ndarray
         CHARIS FITS cube image data. Axes should be (wavelength,y,x)
         Should be background subtracted.
 
-    initial_guess_l: list or np.1darray
+    initial_guess_l: list or np.ndarray
         Initial guess for the PSF centroid for the left beam [x,y].
 
-    initial_guess_l: list or np.1darray
+    initial_guess_l: list or np.ndarray
         Initial guess for the PSF centroid for the right beam [x,y].
 
     box_size: int
@@ -48,7 +48,7 @@ def charis_centroids_one_psf(image_data,initial_guess_l,initial_guess_r,box_size
     Returns:
     --------
 
-    centroid_list: np.2darray
+    centroid_list: np.ndarray
         Array of left and right beam centroids. 
 
     """
@@ -72,7 +72,7 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
     """Calculate single difference and sum between left and right beam 
     rectangular aperture photometry from a single psf. Add L/R counts and stds to array.
     
-    Parameters:
+    Parameters
     -----------
     fits_cube_path : str or Path
         Path to the CHARIS fits cube file.
@@ -94,7 +94,7 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
         Photutils annulus object for local background subtraction for right Wollaston beam.
         Provide r and l or it will be skipped.
 
-    Returns:
+    Returns
     --------
     np.ndarray
         Array with six elements:
@@ -182,7 +182,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
     Note - This function assumes that the raw and extracted cubes have the same number in the filepath. If
     you processed your cubes in the CHARIS DPP, this is not the case. 
     
-    Parameters:
+    Parameters
     -----------
 
     cube_directory_path : str or Path
@@ -228,7 +228,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
     plot_every_x: int, optional
         Plots apertures against image data every xth file processed.
 
-    Returns:
+    Returns
     --------
 
     None
