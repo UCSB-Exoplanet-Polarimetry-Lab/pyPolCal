@@ -90,6 +90,11 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
             "properties" : {"beam": 'o'}, 
             "tag": "internal",
             },
+            "pickoff" : {
+                    "type" : "general_retarder_function",
+                    "properties" : {"phi": 0, "delta_theta":0 },
+                    "tag": "internal",
+                },      
             "image_rotator" : {
                 "type" : "general_retarder_function",
                 "properties" : {"phi": 0, "theta": imr_theta, "delta_theta": offset_imr},
@@ -119,10 +124,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-        "image_rotator" : 
-            {"phi": imr_phi},
-        "hwp" :
-            {"phi": hwp_phi},
+        "pickoff": {"phi": 0, "delta_theta": 0}, 
     }
 
     # Define some bounds
@@ -139,7 +141,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     epsilon_cal_bounds = (0.9*epsilon_cal, 1)
     #calostd = 0.1 *np.abs(offset_cal)
     #offset_cal_bounds = (-15, 15)
-    #dichroic_phi_bounds = (0,np.pi)
+    dichroic_phi_bounds = (0,np.pi)
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
  
@@ -157,7 +159,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [imr_phi_bounds,hwp_phi_bounds],mode='least_squares')
+            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [dichroic_phi_bounds,offset_bounds],mode='least_squares')
         print(result)
 
         # Update p0 with new values
