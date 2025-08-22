@@ -15,7 +15,7 @@ from vampires_calibration.plotting import plot_data_and_model
 import traceback
 from vampires_calibration.csv_tools import arr_csv_HWP,read_csv
 import json
-from pyMuellerMat.physical_models.charis_physical_models import HWP_retardance,IMR_retardance
+from pyMuellerMat.physical_models.charis_physical_models import HWP_retardance,IMR_retardance,M3_retardance,M3_diattenuation
 import copy
 
 
@@ -400,6 +400,8 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
     imr_phi = IMR_retardance(wavelength_bins,259.12694)[wavelength_bin]
     hwp_phi = HWP_retardance(wavelength_bins,1.64601,1.28540)[wavelength_bin]
     epsilon_cal = 1
+    m3_diat = M3_diattenuation(wavelength_bins[wavelength_bin])
+    m3_ret = M3_retardance(wavelength_bins[wavelength_bin])
 
     # Define instrument configuration as system dictionary
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
@@ -412,12 +414,12 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
             },
             "image_rotator" : {
                 "type" : "general_retarder_function",
-                "properties" : {"phi": 0, "theta": imr_theta, "delta_theta": offset_imr},
+                "properties" : {"phi": imr_phi, "theta": imr_theta, "delta_theta": offset_imr},
                 "tag": "internal",
             },
             "hwp" : {
                 "type" : "general_retarder_function",
-                "properties" : {"phi": 0, "theta": hwp_theta, "delta_theta": offset_hwp},
+                "properties" : {"phi": hwp_phi, "theta": hwp_theta, "delta_theta": offset_hwp},
                 "tag": "internal",
             },
             "altitude_rot" : {
@@ -427,7 +429,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
             },
             "M3" : {
                 "type" : "diattenuator_retarder_function",
-                "properties" : {'phi': 0, "epsilon" : 0},
+                "properties" : {"phi": m3_ret, "epsilon" : m3_diat},
                 "tag": "internal",
             },
             "parang_rot" : {
@@ -446,7 +448,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
         "M3" : 
-            {'epsilon':0}
+            {"epsilon":m3_diat}
     }
 
     # Define some bounds
@@ -468,20 +470,20 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
         if iteration > 1:
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
-        result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
+        result, new_logl,error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
             interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [(0,1)],mode='least_squares')
         print(result)
 
         # Update p0 with new values
 
         update_p0(p0, result.x)
+        
         iteration += 1
 
 
     # Update p dictionary with the fitted values
 
     update_p0(p0, result.x)
-
     # Process model
 
     p0_values, p0_keywords = parse_configuration(p0)

@@ -1069,7 +1069,7 @@ def model_data(json_dir, csv_path=None):
     
     # Create dataframe
     # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
-    df = pd.DataFrame(columns=['wavelength_bin', 'hwp_retardance',  'imr_retardance'])
+    df = pd.DataFrame(columns=['wavelength_bin', 'eps'])
 
    # Load JSON files
     json_files = sorted(json_dir.glob("*.json"))
@@ -1095,6 +1095,7 @@ def model_data(json_dir, csv_path=None):
     # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
     hwp_retardances = []
     imr_retardances = []
+    m3epss = []
     hwp_offsets = []
     imr_offsets = []
     lp_offsets = []
@@ -1104,20 +1105,22 @@ def model_data(json_dir, csv_path=None):
             data = json.load(file)
             # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
             # Extract retardances
-            hwp_retardance = data['hwp']['phi']
-            imr_retardance = data['image_rotator']['phi']
-            # Extract lp diattenuation
+            # hwp_retardance = data['hwp']['phi']
+            # imr_retardance = data['image_rotator']['phi']
+            # # Extract lp diattenuation
+            m3_eps = data['M3']['epsilon']
             #lp_epsilon = data['lp']['epsilon']
             # Extract offset angles 
             #hwp_offset = data['hwp']['delta_theta']
             #imr_offset = data['image_rotator']['delta_theta']
             #lp_offset = data['lp_rot']['pa'] 
-            hwp_retardances.append(hwp_retardance)
-            imr_retardances.append(imr_retardance)
+            # hwp_retardances.append(hwp_retardance)
+            # imr_retardances.append(imr_retardance)
             #hwp_offsets.append(hwp_offset)
             #imr_offsets.append(imr_offset)
             #lp_offsets.append(lp_offset)
             #lp_epsilons.append(lp_epsilon)
+            m3epss.append(m3_eps)
 
     # Find offset averages/errors
 
@@ -1144,8 +1147,8 @@ def model_data(json_dir, csv_path=None):
 
     # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
 
-    df['wavelength_bin'], df['hwp_retardance'], df['imr_retardance']= \
-        (wavelength_bins, hwp_retardances, imr_retardances)   
+    df['wavelength_bin'], df['eps']= \
+        (wavelength_bins, m3epss)   
     
     # Save to CSV if specified
 
