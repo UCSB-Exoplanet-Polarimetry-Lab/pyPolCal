@@ -17,7 +17,7 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
     rectangular aperture photometry from CHARIS internal calibration
     fits cubes. Add L/R counts and stds to array.
     
-    Parameters
+    Parameters:
     -----------
     fits_cube_path : str or Path
         Path to the CHARIS fits cube file.
@@ -25,7 +25,7 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
     wavelength_bin : int
         Index of the wavelength bin to analyze (0-based).
     
-    Returns
+    Returns:
     --------
     np.ndarray
         Array with six elements:
@@ -96,14 +96,14 @@ def fix_hwp_angles(csv_file_path, nderotator=8):
     '''Take corrupted HWP angles and replace them with assumed values
     in a new csv titled {old_title}_fixed.
 
-    Parameters
+    Parameters:
     -----------
     csv_file_path : str or Path
         Path to the specified CSV file containing the corrupted HWP angles.
     
     nderotator : int
         Number of derotator angles (assumed to be 8).
-    Returns
+    Returns:
     --------
     None
     '''
@@ -132,8 +132,8 @@ def fix_hwp_angles(csv_file_path, nderotator=8):
 def arr_csv_HWP(csv_path, hwp_order, todelete=None, new_csv_path=None):
     """Arranges CSVs by a custom HWP order. Deletes selected angles.
     
-    Parameters
-    ----------
+    Parameters:
+    -----------
     csv_path: str or Path
         CSV containing relevant headers, can be obtained from
         write_fits_info_to_csv().
@@ -145,8 +145,8 @@ def arr_csv_HWP(csv_path, hwp_order, todelete=None, new_csv_path=None):
         Optional path to create the new csv. If set to None,
         the csv will be edited in place.
     
-    Returns
-    --------
+    Returns:
+    ---------
     df: Pandas DataFrame
         Returns DataFrame for visual inspection of csv changes.
         
@@ -195,7 +195,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
     Note - This function assumes that the raw and extracted cubes have the same number in the filepath. If
     you processed your cubes in the CHARIS DPP, this is not the case. 
     
-    Parameters
+    Parameters:
     -----------
     cube_directory_path : str or Path
         Path to the directory containing CHARIS fits cubes.
@@ -216,7 +216,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
         List of HWP angles to delete. Default works
         for double difference calculations. Set to None if you want to keep them all. 
 
-    Returns
+    Returns:
     --------
     None
         Write all info to a csv with these columns: "filepath", "D-IMRANG", "RET-ANG1", "single_sum", "single_diff",
@@ -288,7 +288,7 @@ def read_csv(file_path, mode= 'standard'):
     for one wavelength bin and returns interleaved values, standard deviations, 
     and configuration list.
 
-    Parameters
+    Parameters:
     -----------
     file_path : str or Path
         Path to the CSV.
@@ -296,8 +296,9 @@ def read_csv(file_path, mode= 'standard'):
         If mode = 'wavelength', the wavelengths will be added
         to the configuration list for physical model fitting.
         If mode = 'm3', it will add the parallactic and altitude angles to the configuration list.
+        If mode = 'm3_mcmc', it adds parallactic angle, altitude angle, and wavelength to the configuration list.
 
-    Returns
+    Returns:
     -----------
     interleaved_values : np.ndarray
         Interleaved values from "single_diff" and "single_sum".
@@ -346,6 +347,17 @@ def read_csv(file_path, mode= 'standard'):
                 "altitude_rot": {"pa":a},
                 "parang_rot": {"pa":p}
             }
+        elif mode == 'm3_mcmc':
+            wavelength = row["wavelength_bin"]
+            a = row['a']
+            p = row['p']
+            row_data = {
+                "hwp": {"theta": hwp_theta, "wavelength": wavelength},
+                "image_rotator": {"theta": imr_theta, "wavelength": wavelength},
+                "altitude_rot": {"pa":a},
+                "M3": {"wavelength":wavelength},
+                "parang_rot": {"pa":p}
+            }
         else:
             # Building dictionary
             row_data = {
@@ -361,21 +373,25 @@ def read_csv(file_path, mode= 'standard'):
         return interleaved_values, interleaved_stds, configuration_list
     
 
-def read_csv_physical_model_all_bins(csv_dir):
+def read_csv_physical_model_all_bins(csv_dir,m3=False):
     """
     Does the same thing as read_csv() but reads all 22 csvs written
     in a directory for all 22 CHARIS wavelength bins and puts everything into one array.
     Also adds wavelength bin to the configuration dictionary for use with custom
     pyMuellerMat common mm functions. 
 
-    Parameters
+    Parameters:
     -----------
     csv_dir : Path or str
         The directory where the csv files are stored. Will check for bins in the title
         and for 22 files.
 
-    Returns
-    --------
+    m3 : bool, optional
+        Adds necessary parameters to the config dict to fit m3's physical model
+        parameters. Adds wavelength for M3, IMR, and HWP.
+
+    Returns:
+    -----------
     interleaved_values_all : list
         A list of interleaved values for all wavelength bins.
     interleaved_stds_all : list
@@ -407,11 +423,18 @@ def read_csv_physical_model_all_bins(csv_dir):
     interleaved_values_all = []
     interleaved_stds_all = []
     configuration_list_all = []
-    for file in sorted_files:
-        interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='physical_model_CHARIS')
-        interleaved_values_all = np.append(interleaved_values_all, interleaved_values)
-        interleaved_stds_all = np.append(interleaved_stds_all, interleaved_stds)
-        configuration_list_all.extend(configuration_list)
+    if m3 is False:
+        for file in sorted_files:
+            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='wavelength')
+            interleaved_values_all = np.append(interleaved_values_all, interleaved_values)
+            interleaved_stds_all = np.append(interleaved_stds_all, interleaved_stds)
+            configuration_list_all.extend(configuration_list)
+    if m3 is True:
+        for file in sorted_files:
+            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='m3_mcmc')
+            interleaved_values_all = np.append(interleaved_values_all, interleaved_values)
+            interleaved_stds_all = np.append(interleaved_stds_all, interleaved_stds)
+            configuration_list_all.extend(configuration_list)
 
     return interleaved_values_all, interleaved_stds_all, configuration_list_all
 
