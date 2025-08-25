@@ -6,6 +6,7 @@ from photutils.aperture import aperture_photometry
 import pandas as pd
 import re
 from vampires_calibration.constants import wavelength_bins
+import json
 
 ###############################################################
 ###### Functions related to reading/writing in .csv values ####
@@ -470,3 +471,129 @@ def match_fits_tags(cubedir):
         proc_file.rename(cubedir / f"CRSA{original_id}_flat_cube.fits")
         print(f"Renamed {proc_file.name} to CRSA{original_id}_flat_cube.fits")
         
+
+def model_data(json_dir, csv_path=None):
+    """
+    Creates a Pandas DataFrame of the fitted IMR/HWP retardances and 
+    calibration polarizer diattenuation per wavelength bin from a directory of 22 JSON 
+    dictionaries. Optionally saves the DataFrame to a CSV file. CURRENT PARAMETERS:
+    hwp_retardance, imr_retardance, calibration_polarizer_diattenuation.
+    
+    Parameters
+    ----------
+    json_dir : str or Path
+        The directory containing the JSON system dictionaries for all 22 bins.
+        Make sure the directory only contains these 22 JSON files. Component names
+        are 'lp' for calibration polarizer, 'image_rotator' for image rotator,
+        and 'hwp' for half-wave plate.
+
+    csv_path : str or Path, optional
+        If specified, saves the DataFrame to this path as a CSV file.
+        
+    Returns
+    -------
+    df : pd.DataFrame
+        A DataFrame containing all fitted retardances by wavelength and offset angles with errors.
+    """
+    json_dir = Path(json_dir)
+    if not json_dir.is_dir():
+        raise ValueError(f"{json_dir} is not a valid directory.")
+    if csv_path is not None:
+        csv_path = Path(csv_path)
+    
+    # Create dataframe
+    # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
+    df = pd.DataFrame(columns=['wavelength_bin', 'hwp_phi', 'hwp_offset','imr_phi', 'imr_offset','lp_epsilon','lp_offset'])
+
+   # Load JSON files
+    json_files = sorted(json_dir.glob("*.json"))
+
+    # Check for correct file amount
+    if len(json_files) != 22:
+        raise ValueError(f"Expected 22 JSON files, found {len(json_files)}.")
+    
+    # Check for bins
+    for f in json_files:
+     try:
+        match = re.search(r'bin(\d+)', f.name)
+        if not match:
+            raise ValueError(f"File {f.name} does not match expected naming convention.")
+     except Exception as e:
+        raise ValueError(f"Error processing file {f.name}: {e}")
+     
+     # Sort Jsons
+
+    sorted_files = sorted(json_files, key=lambda f: int(re.search(r'bin(\d+)', f.name).group(1)))
+
+    # Extract retardances and offsets
+    # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
+    hwp_retardances = []
+    imr_retardances = []
+    pickphis = []
+    pickoffoff = []
+    hwp_offsets = []
+    imr_offsets = []
+    lp_offsets = []
+    lp_epsilons = []
+    for f in sorted_files:
+        with open(f, 'r') as file:
+            data = json.load(file)
+            # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
+            # Extract retardances
+            hwp_retardance = data['hwp']['phi']
+            imr_retardance = data['image_rotator']['phi']
+            # # Extract lp diattenuation
+            #pick_phi = data['pickoff']['phi']
+            #pick_off = data['pickoff']['delta_theta']
+            lp_epsilon = data['lp']['epsilon']
+            # Extract offset angles 
+            hwp_offset = data['hwp']['delta_theta']
+            imr_offset = data['image_rotator']['delta_theta']
+            lp_offset = data['lp_rot']['pa'] 
+            hwp_retardances.append(hwp_retardance)
+            imr_retardances.append(imr_retardance)
+            hwp_offsets.append(hwp_offset)
+            imr_offsets.append(imr_offset)
+            lp_offsets.append(lp_offset)
+            lp_epsilons.append(lp_epsilon)
+            #pickphis.append(pick_phi)
+            #pickoffoff.append(pick_off)
+
+    # Find offset averages/errors
+
+    # hwp_offset_error = np.std(hwp_offsets)
+    # imr_offset_error = np.std(imr_offsets)
+    # lp_offset_error = np.std(lp_offsets)
+    # hwp_offset = np.mean(hwp_offsets)
+    # imr_offset = np.mean(imr_offsets)
+    # lp_offset = np.mean(lp_offsets)
+
+    # Replace offset angles with averages
+
+    # hwp_offsets = [hwp_offset] * len(hwp_offsets)
+    # imr_offsets = [imr_offset] * len(imr_offsets)
+    # lp_offsets = [lp_offset] * len(lp_offsets)
+
+    # Make errors lists
+
+    # hwp_offset_errors = [hwp_offset_error] * len(hwp_offsets)
+    # imr_offset_errors = [imr_offset_error] * len(imr_offsets)
+    # lp_offset_errors = [lp_offset_error] * len(lp_offsets)
+
+    # Fill DataFrame
+
+    # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
+
+    df['wavelength_bin'],df['imr_phi'],df['imr_offset'], df['hwp_phi'],df['hwp_offset'], \
+        df['lp_epsilon'], df['lp_offset'] = wavelength_bins, imr_retardances, imr_offsets, \
+            hwp_retardances, hwp_offsets, lp_epsilons, lp_offsets
+    
+    # Save to CSV if specified
+
+    if csv_path is not None:
+        df.to_csv(csv_path, index=False)
+        print(f"Data saved to {csv_path}")
+    
+    return df
+    
+

@@ -72,14 +72,14 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     #configuration_list = configuration_list 
 
     # Loading in past fits 
-    offset_imr = 0.18519 # derotator offset
-    offset_hwp = -0.88466# HWP offset
-    offset_cal = -0.42809 # calibration polarizer offset
+    offset_imr = -0.0118 # derotator offset
+    offset_hwp = -0.002# HWP offset
+    offset_cal = -0.035 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
     hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
-    epsilon_cal = 1
+    epsilon_cal = 0
 
     # Define instrument configuration as system dictionary
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
@@ -90,11 +90,6 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
             "properties" : {"beam": 'o'}, 
             "tag": "internal",
             },
-            "pickoff" : {
-                    "type" : "general_retarder_function",
-                    "properties" : {"phi": 0, "delta_theta":0 },
-                    "tag": "internal",
-                },      
             "image_rotator" : {
                 "type" : "general_retarder_function",
                 "properties" : {"phi": 0, "theta": imr_theta, "delta_theta": offset_imr},
@@ -112,7 +107,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
             },
             "lp" : {  # calibration polarizer for internal calibration source
                 "type": "diattenuator_retarder_function",
-                "properties": {"epsilon":1},
+                "properties": {"epsilon":0},
                 "tag": "internal",
             }}
     }
@@ -124,7 +119,203 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-        "pickoff": {"phi": 0, "delta_theta": 0}, 
+        "image_rotator": {"phi": imr_phi,"delta_theta":offset_imr},
+        "hwp": {"phi": hwp_phi,"delta_theta":offset_hwp},
+        "lp_rot": {"pa":offset_cal},
+        "lp": {"epsilon":epsilon_cal},
+    }
+
+    # Define some bounds
+    # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS, ADD NEW BOUNDS OR CHANGE THEM
+    offset_bounds = (-5,5)
+    hwpstd = 0.1*np.abs(hwp_phi)
+    hwp_phi_bounds = (hwp_phi-hwpstd, hwp_phi+hwpstd)
+    imrstd = 0.1*np.abs(imr_phi)
+    imr_phi_bounds = (imr_phi-imrstd, imr_phi+imrstd)
+    #imrostd = 0.1*np.abs(offset_imr)
+    #offset_imr_bounds = (offset_imr-imrostd, offset_imr+imrostd)
+    #hwpostd = 0.1*np.abs(offset_hwp)
+    #offset_hwp_bounds = (offset_hwp-hwpostd, offset_hwp+hwpostd)
+    epsilon_cal_bounds = (0,1)
+    #calostd = 0.1 *np.abs(offset_cal)
+    #offset_cal_bounds = (-15, 15)
+    dichroic_phi_bounds = (0,np.pi)
+
+    # Minimize the system Mueller matrix using the interleaved values and standard deviations
+ 
+
+    # Counters for iterative fitting
+
+    iteration = 1
+    previous_logl = 1000000
+    new_logl = 0
+
+    # Perform iterative fitting
+    # MODIFY THE BOUNDS INPUT HERE IF YOU WANT TO CHANGE PARAMETERS
+    while abs(previous_logl - new_logl) > 0.01*abs(previous_logl):
+        if iteration > 1:
+            previous_logl = new_logl
+        # Configuring minimization function for CHARIS
+        result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
+            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [imr_phi_bounds,offset_bounds,hwp_phi_bounds,offset_bounds,offset_bounds,epsilon_cal_bounds],mode='least_squares')
+        print(result)
+
+        # Update p0 with new values
+
+        update_p0(p0, result.x)
+        iteration += 1
+
+
+    # Update p dictionary with the fitted values
+
+    update_p0(p0, result.x)
+
+    # Process model
+
+    p0_values, p0_keywords = parse_configuration(p0)
+
+    # Generate modeled left and right beam intensities
+
+    updated_system_mm = update_system_mm(result.x, p0_keywords, system_mm)
+
+    # Generate modeled left and right beam intensities
+
+    LR_intensities2 = model(p0_values, p0_keywords, updated_system_mm, configuration_list)
+
+    # Process these into interleaved single normalized differences and sums
+
+    diffs_sums2 = process_model(LR_intensities2)
+
+    # Plot the modeled and observed values
+    if plot_path:
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], include_sums=False,save_path=plot_path)
+    else:
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin],include_sums=False)
+    
+    # Print the Mueller matrix
+
+    print("Updated Mueller Matrix:")
+    print(updated_system_mm.evaluate())
+
+    # Print residuals
+    print(len(interleaved_values), len(diffs_sums2))
+    data_dd = process_dataset(interleaved_values)[::2]
+    model_dd = diffs_sums2[::2]
+    residuals = data_dd - model_dd
+    print("Residuals range:", residuals.min(), residuals.max())
+    print("Error:", error)
+
+    # Save system dictionary to a json file
+
+    with open (new_config_dict_path, 'w') as f:
+        json.dump(p0, f, indent=4)
+    error = np.array(error)
+    return error, fig, ax
+
+
+def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):
+    """
+    Same as above but uses physical model as a starting point and fits an additional retarder.
+    
+
+    Parameters
+    ----------
+    csv_path : str or Path
+        Path to the CSV file containing the calibration data. Must contain the columns "D_IMRANG", 
+    "RET-ANG1", "single_sum", "single_diff", "diff_std", and "sum_std".
+
+    wavelength_bin : int
+        The index of the wavelength bin to fit (0-21 for CHARIS).
+
+    new_system_dict_path : str or Path
+        Path to save the new system dictionary as a JSON file. The config dict
+        component names will be 'lp' for calibration polarizer, 'image_rotator' for image rotator,
+        and 'hwp' for half-wave plate.
+
+    plot_path : str or Path, optional
+        Path to save the plot of the observed vs modeled data. If not provided, no plot will be saved.
+        Must have a .png extension.
+    
+    Returns
+    -------
+    error : np.array
+      An array of the errors for each parameter. Estimated using the method from van Holstein et al. 2020.
+      van Holstein et al. 2020.
+    fig : MatPlotLib figure object
+    ax : MatPlotLib axis object
+    """
+    # Check file paths
+    filepath = Path(csv_path)
+    new_config_dict_path=Path(new_config_dict_path)
+    if not filepath.exists() or filepath.suffix != ".csv":
+        raise ValueError("Please provide a valid .csv file.")
+    if plot_path:
+        plot_path = Path(plot_path)
+        if plot_path.suffix != ".png":
+            raise ValueError("Please provide a valid .png file for plotting.")
+    if new_config_dict_path.suffix != ".json":
+        raise ValueError("Please provide a valid .json file for saving the new system dictionary.")
+    new_config_dict_path = Path(new_config_dict_path)
+
+    # Read in data
+    interleaved_values, interleaved_stds, configuration_list = read_csv(filepath)
+
+    # this works, not really sure why
+    interleaved_values_forplotfunc = copy.deepcopy(interleaved_values)
+    interleaved_stds_forlplotfunc = copy.deepcopy(interleaved_stds)
+    #interleaved_stds = process_errors(interleaved_stds,interleaved_values)[::2] # just diffs
+    #interleaved_values = process_dataset(interleaved_values)[::2] # just diffs
+    #configuration_list = configuration_list 
+
+    # Loading in past fits 
+    offset_imr = 0.18519 # derotator offset
+    offset_hwp = -0.88466# HWP offset
+    offset_cal = -0.42809 # calibration polarizer offset
+    imr_theta = 0 # placeholder 
+    hwp_theta = 0 # placeholder
+    imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
+    hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
+    epsilon_cal = 1
+
+    # Define instrument configuration as system dictionary
+    # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
+    system_dict = {
+            "components" : {
+                "wollaston" : {
+                "type" : "wollaston_prism_function",
+                "properties" : {"beam": 'o'}, 
+                "tag": "internal",
+                },
+                "pickoff" : {
+                    "type" : "diattenuator_retarder_function",
+                    "properties" : {"phi": 0,"epsilon":0, "delta_theta":0 },
+                    "tag": "internal",
+                },      
+                "image_rotator" : {
+                    "type" : "SCExAO_IMR_function",
+                    "properties" : {"wavelength":wavelength_bins[wavelength_bin], "d": 259.12694, "theta": imr_theta, "delta_theta": offset_imr},
+                    "tag": "internal",
+                },
+                "hwp" : {
+                    "type" : "two_layer_HWP_function",
+                    "properties" : {"wavelength": wavelength_bins[wavelength_bin], "w_SiO2":1.64601, "w_MgF2": 1.28540, "theta":hwp_theta, "delta_theta": offset_hwp},
+                    "tag": "internal",
+                },
+                "lp" : {  # calibration polarizer for internal calibration source
+                    "type": "general_linear_polarizer_function_with_theta",
+                    "properties": {"delta_theta": offset_cal },
+                    "tag": "internal",
+                }}
+        }
+
+    # Converting system dictionary into system Mueller Matrix object
+    system_mm = generate_system_mueller_matrix(system_dict)
+
+    # Define initial guesses for our parameters 
+
+    # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
+    p0 = {
+        "pickoff": {"phi": 0.5,"epsilon":0,"delta_theta":4}, 
     }
 
     # Define some bounds
@@ -159,7 +350,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [dichroic_phi_bounds,offset_bounds],mode='least_squares')
+            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [dichroic_phi_bounds,(0,1),offset_bounds],mode='least_squares')
         print(result)
 
         # Update p0 with new values

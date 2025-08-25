@@ -170,7 +170,7 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     return fig, ax
 
 
-def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=None, title=None, axtitle=None):
+def plot_config_dict_vs_wavelength(component, parameter, json_dir, custom_ax=None,save_path=None, title=None, axtitle=None):
     """
     Plots a parameter in the JSON configuration dictionaries vs wavelength.
     Only works if all JSON dictionaries are in a directory labeled
@@ -182,17 +182,25 @@ def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=Non
     ----------
     component : str
         The name of the component (e.g., 'image_rotator', 'hwp', etc.).
+
     parameter : str
         The key of the parameter in the system dictionary.
+
     json_dir : str or Path
         The directory containing the JSON configuration dictionaries for all 22 bins.
         Make sure the directory only contains these 22 JSON files. 
         Component names are 'lp' for calibration polarizer, 'image_rotator' for image rotator,
         and 'hwp' for half-wave plate.
+
+    custom_ax : matplotlib Axes, optional
+        If provided, the plot will be drawn on this Axes object instead of creating a new one.
+
     save_path : str or Path, optional
         If specified, saves the plot to this path. Otherwise, displays the plot.
+
     title : str, optional
         Title for the plot. If not provided, a default title is used.
+
     axtitle : str, optional
         Title for the y-axis. If not provided, a default title is used.
     
@@ -202,6 +210,7 @@ def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=Non
         An array of the parameter values extracted from the JSON files.
         To plot, plot against the default CHARIS wavelength bins (can
         be found in instruments.py).
+
     fig, ax : matplotlib Figure and Axes
         The Figure and Axes objects of the plot.
     """
@@ -249,7 +258,7 @@ def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=Non
             if parameter not in data[component]:
                 raise ValueError(f"Parameter '{parameter}' not found in component '{component}' in {f.name}.")
             # Set relevant components to degrees
-            if parameter == 'theta' or parameter == 'delta_theta' or parameter == 'phi':
+            if parameter == 'phi':
                 data[component][parameter] = np.degrees(data[component][parameter])
             
             parameters.append(data[component][parameter])
@@ -261,6 +270,8 @@ def plot_config_dict_vs_wavelength(component, parameter, json_dir, save_path=Non
     # Plot vs wavelength bins
 
     fig, ax = plt.subplots(figsize=(10, 6))
+    if custom_ax: # set custom ax
+        ax = custom_ax
     ax.scatter(wavelength_bins, parameters, marker='x',color='black', linewidths = 1)
     ax.set_xlabel('Wavelength (nm)')
     if axtitle is not None:
@@ -1037,127 +1048,6 @@ def plot_pol_efficiency_from_data(csv_dir, bins, save_path=None, title=None):
     
     return pol_efficiencies, fig, ax
 
-
-def model_data(json_dir, csv_path=None):
-    """
-    Creates a Pandas DataFrame of the fitted IMR/HWP retardances and 
-    calibration polarizer diattenuation per wavelength bin from a directory of 22 JSON 
-    dictionaries. Optionally saves the DataFrame to a CSV file. CURRENT PARAMETERS:
-    hwp_retardance, imr_retardance, calibration_polarizer_diattenuation.
-    
-    Parameters
-    ----------
-    json_dir : str or Path
-        The directory containing the JSON system dictionaries for all 22 bins.
-        Make sure the directory only contains these 22 JSON files. Component names
-        are 'lp' for calibration polarizer, 'image_rotator' for image rotator,
-        and 'hwp' for half-wave plate.
-
-    csv_path : str or Path, optional
-        If specified, saves the DataFrame to this path as a CSV file.
-        
-    Returns
-    -------
-    df : pd.DataFrame
-        A DataFrame containing all fitted retardances by wavelength and offset angles with errors.
-    """
-    json_dir = Path(json_dir)
-    if not json_dir.is_dir():
-        raise ValueError(f"{json_dir} is not a valid directory.")
-    if csv_path is not None:
-        csv_path = Path(csv_path)
-    
-    # Create dataframe
-    # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
-    df = pd.DataFrame(columns=['wavelength_bin', 'eps'])
-
-   # Load JSON files
-    json_files = sorted(json_dir.glob("*.json"))
-
-    # Check for correct file amount
-    if len(json_files) != 22:
-        raise ValueError(f"Expected 22 JSON files, found {len(json_files)}.")
-    
-    # Check for bins
-    for f in json_files:
-     try:
-        match = re.search(r'bin(\d+)', f.name)
-        if not match:
-            raise ValueError(f"File {f.name} does not match expected naming convention.")
-     except Exception as e:
-        raise ValueError(f"Error processing file {f.name}: {e}")
-     
-     # Sort Jsons
-
-    sorted_files = sorted(json_files, key=lambda f: int(re.search(r'bin(\d+)', f.name).group(1)))
-
-    # Extract retardances and offsets
-    # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
-    hwp_retardances = []
-    imr_retardances = []
-    m3epss = []
-    hwp_offsets = []
-    imr_offsets = []
-    lp_offsets = []
-    lp_epsilons = []
-    for f in sorted_files:
-        with open(f, 'r') as file:
-            data = json.load(file)
-            # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
-            # Extract retardances
-            # hwp_retardance = data['hwp']['phi']
-            # imr_retardance = data['image_rotator']['phi']
-            # # Extract lp diattenuation
-            m3_eps = data['M3']['epsilon']
-            #lp_epsilon = data['lp']['epsilon']
-            # Extract offset angles 
-            #hwp_offset = data['hwp']['delta_theta']
-            #imr_offset = data['image_rotator']['delta_theta']
-            #lp_offset = data['lp_rot']['pa'] 
-            # hwp_retardances.append(hwp_retardance)
-            # imr_retardances.append(imr_retardance)
-            #hwp_offsets.append(hwp_offset)
-            #imr_offsets.append(imr_offset)
-            #lp_offsets.append(lp_offset)
-            #lp_epsilons.append(lp_epsilon)
-            m3epss.append(m3_eps)
-
-    # Find offset averages/errors
-
-    # hwp_offset_error = np.std(hwp_offsets)
-    # imr_offset_error = np.std(imr_offsets)
-    # lp_offset_error = np.std(lp_offsets)
-    # hwp_offset = np.mean(hwp_offsets)
-    # imr_offset = np.mean(imr_offsets)
-    # lp_offset = np.mean(lp_offsets)
-
-    # Replace offset angles with averages
-
-    # hwp_offsets = [hwp_offset] * len(hwp_offsets)
-    # imr_offsets = [imr_offset] * len(imr_offsets)
-    # lp_offsets = [lp_offset] * len(lp_offsets)
-
-    # Make errors lists
-
-    # hwp_offset_errors = [hwp_offset_error] * len(hwp_offsets)
-    # imr_offset_errors = [imr_offset_error] * len(imr_offsets)
-    # lp_offset_errors = [lp_offset_error] * len(lp_offsets)
-
-    # Fill DataFrame
-
-    # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
-
-    df['wavelength_bin'], df['eps']= \
-        (wavelength_bins, m3epss)   
-    
-    # Save to CSV if specified
-
-    if csv_path is not None:
-        df.to_csv(csv_path, index=False)
-        print(f"Data saved to {csv_path}")
-    
-    return df
-    
 
 
     
