@@ -242,7 +242,7 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     # Generating a list of model predicted values for each configuration - already parsed
     output_intensities = model(p, system_parameters, system_mm, configuration_list, 
         s_in=s_in, process_model=process_model)
-
+    print(output_intensities)
     # Convert lists to numpy arrays
     dataset = np.array(dataset)
     errors = np.array(errors)

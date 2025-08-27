@@ -2,7 +2,7 @@ import numpy as np
 from pathlib import Path
 import copy
 from vampires_calibration.constants import wavelength_bins
-from pyMuellerMat.physical_models.charis_physical_models import IMR_retardance, HWP_retardance
+from pyMuellerMat.physical_models.charis_physical_models import IMR_retardance, HWP_retardance, M3_retardance, M3_diattenuation
 from vampires_calibration.csv_tools import read_csv
 from vampires_calibration.utils import generate_system_mueller_matrix,process_dataset,process_errors,process_model,parse_configuration
 from vampires_calibration.fitting import update_p0,update_system_mm,minimize_system_mueller_matrix,model
@@ -72,14 +72,17 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     #configuration_list = configuration_list 
 
     # Loading in past fits 
-    offset_imr = -0.0118 # derotator offset
-    offset_hwp = -0.002# HWP offset
-    offset_cal = -0.035 # calibration polarizer offset
+    offset_imr = 0# derotator offset
+    offset_hwp = 0# HWP offset
+    offset_cal = 0 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
     hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
-    epsilon_cal = 0
+    epsilon_cal = 1
+    m3_phi = M3_retardance(wavelength_bins[wavelength_bin])
+    m3_epsilon = M3_diattenuation(wavelength_bins[wavelength_bin])
+    
 
     # Define instrument configuration as system dictionary
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
@@ -100,14 +103,14 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
                 "properties" : {"phi": 0, "theta": hwp_theta, "delta_theta": offset_hwp},
                 "tag": "internal",
             },
-            "lp_rot": { # changed from delta_theta to match Joost t Hart
-                "type": "rotator_function",
-                "properties" : {'pa':offset_cal},
+            "lp_rot" :{
+                "type" : "rotator_function",
+                "properties" : {"pa": 0},
                 "tag": "internal",
             },
-            "lp" : {  # calibration polarizer for internal calibration source
+            "lp" : {  
                 "type": "diattenuator_retarder_function",
-                "properties": {"epsilon":0},
+                "properties": {"epsilon":epsilon_cal},
                 "tag": "internal",
             }}
     }
@@ -119,9 +122,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-        "image_rotator": {"phi": imr_phi,"delta_theta":offset_imr},
-        "hwp": {"phi": hwp_phi,"delta_theta":offset_hwp},
-        "lp_rot": {"pa":offset_cal},
+        "image_rotator": {"phi": imr_phi,"delta_theta":0},
+        "hwp": {"phi": hwp_phi,"delta_theta":0},
+        "lp_rot": {"pa":0},
         "lp": {"epsilon":epsilon_cal},
     }
 

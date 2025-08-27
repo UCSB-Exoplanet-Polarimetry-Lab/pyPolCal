@@ -503,7 +503,7 @@ def model_data(json_dir, csv_path=None):
     
     # Create dataframe
     # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
-    df = pd.DataFrame(columns=['wavelength_bin', 'hwp_phi', 'hwp_offset','imr_phi', 'imr_offset','lp_epsilon','lp_offset'])
+    df = pd.DataFrame(columns=['wavelength_bin', 'imr_phi', 'imr_offset','hwp_phi', 'hwp_offset', 'lp_epsilon', 'lp_offset'])
 
    # Load JSON files
     json_files = sorted(json_dir.glob("*.json"))
@@ -584,8 +584,8 @@ def model_data(json_dir, csv_path=None):
 
     # MODIFY THIS IF YOU WANT TO USE DIFFERENT PARAMETERS
 
-    df['wavelength_bin'],df['imr_phi'],df['imr_offset'], df['hwp_phi'],df['hwp_offset'], \
-        df['lp_epsilon'], df['lp_offset'] = wavelength_bins, imr_retardances, imr_offsets, \
+    df['wavelength_bin'],df['imr_phi'],df['imr_offset'],df['hwp_phi'],df['hwp_offset'], \
+        df['lp_epsilon'],df['lp_offset'] = wavelength_bins, imr_retardances, imr_offsets, \
             hwp_retardances, hwp_offsets, lp_epsilons, lp_offsets
     
     # Save to CSV if specified
