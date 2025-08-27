@@ -659,6 +659,7 @@ def normalize_diffs(differences,sums):
     diffs=differences/sums
     return diffs,sums
 # ONLY USES DIFFERENCES
+
 def process_model(model_intensities):
     """
     Processes the model intensities to compute double differences.
