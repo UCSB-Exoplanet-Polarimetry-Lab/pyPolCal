@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 from astropy.io import fits
 from photutils.aperture import CircularAperture,CircularAnnulus
 from photutils.aperture import aperture_photometry
@@ -167,7 +168,7 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
     return (single_sum, single_diff, left_counts, right_counts, sum_std, diff_std)
 
 
-def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_path,centroid_guesses,aperture_radii, box_size,wavelength_bin,hwp_order=[0,45,11.25,56.25,22.5,67.5,33.75,78.75],hwp_angles_to_delete=[90],bkgd_annuli_radii=None,plot_every_x=None):
+def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_path,centroid_guesses,aperture_radii, box_size,wavelength_bin,bkgd_annuli_radii=None,plot_every_x=None):
     """
     
     Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
@@ -322,9 +323,11 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
                 print(f"Error processing {fits_file}: {e}")
                 traceback.print_exc()
 
-    # sort HWP angles
-    if hwp_order:
-        arr_csv_HWP(output_csv_path,hwp_order,todelete=hwp_angles_to_delete)
+    # sort csv by filename
+    df = pd.read_csv(output_csv_path)
+    df = df.sort_values(by='filepath')
+    df.to_csv(output_csv_path,index=False)
+    
 
     print(f"CSV file written to {output_csv_path}")
 

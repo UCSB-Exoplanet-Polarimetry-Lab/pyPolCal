@@ -419,7 +419,7 @@ def read_csv_physical_model_all_bins(csv_dir,m3=False):
         raise ValueError(f"Error processing file {f.name}: {e}")
     sorted_files = sorted(csv_files, key=lambda f: int(re.search(r'bin(\d+)', f.name).group(1)))
     if len(sorted_files) != 22:
-        raise ValueError("Expected 22 CSV files for all wavelength bins, but found {}".format(len(sorted_files)))
+       print("Expected 22 CSV files for all wavelength bins, but found {}".format(len(sorted_files)))
     
     interleaved_values_all = []
     interleaved_stds_all = []
