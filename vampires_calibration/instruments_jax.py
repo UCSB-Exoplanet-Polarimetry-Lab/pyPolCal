@@ -13,6 +13,9 @@ from multiprocessing import Pool
 import os
 import jax.numpy as jnp
 from jax import jit
+import jax
+jax.config.update("jax_enable_x64", True)
+
 
 #######################################################
 ###### Functions related to reading in .csv values ####
