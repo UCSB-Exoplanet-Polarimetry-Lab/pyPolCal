@@ -13,6 +13,9 @@ from multiprocessing import Pool
 import os
 import jax.numpy as jnp
 from jax import jit
+import jax
+jax.config.update("jax_enable_x64", True)
+
 
 #######################################################
 ###### Functions related to reading in .csv values ####
@@ -659,6 +662,7 @@ def normalize_diffs(differences,sums):
     diffs=differences/sums
     return diffs,sums
 # ONLY USES DIFFERENCES
+
 def process_model(model_intensities):
     """
     Processes the model intensities to compute double differences.
