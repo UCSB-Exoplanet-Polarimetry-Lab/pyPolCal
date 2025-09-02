@@ -88,6 +88,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
     system_dict = {
         "components" : {
+
             "wollaston" : {
             "type" : "wollaston_prism_function",
             "properties" : {"beam": 'o'}, 
@@ -108,11 +109,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
                 "properties" : {"pa": 0},
                 "tag": "internal",
             },
-            "lp" : {  
-                "type": "diattenuator_retarder_function",
-                "properties": {"epsilon":epsilon_cal},
-                "tag": "internal",
-            }}
+}
     }
 
     # Converting system dictionary into system Mueller Matrix object
@@ -271,9 +268,9 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
     #configuration_list = configuration_list 
 
     # Loading in past fits 
-    offset_imr = 0.18519 # derotator offset
-    offset_hwp = -0.88466# HWP offset
-    offset_cal = -0.42809 # calibration polarizer offset
+    offset_imr = 0.18379 # derotator offset
+    offset_hwp = -0.88170 # HWP offset
+    offset_cal = -0.44270 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
@@ -296,12 +293,12 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
                 },      
                 "image_rotator" : {
                     "type" : "SCExAO_IMR_function",
-                    "properties" : {"wavelength":wavelength_bins[wavelength_bin], "d": 259.12694, "theta": imr_theta, "delta_theta": offset_imr},
+                    "properties" : {"wavelength":wavelength_bins[wavelength_bin], "d": 259.19055, "theta": imr_theta, "delta_theta": offset_imr},
                     "tag": "internal",
                 },
                 "hwp" : {
                     "type" : "two_layer_HWP_function",
-                    "properties" : {"wavelength": wavelength_bins[wavelength_bin], "w_SiO2":1.64601, "w_MgF2": 1.28540, "theta":hwp_theta, "delta_theta": offset_hwp},
+                    "properties" : {"wavelength": wavelength_bins[wavelength_bin], "w_SiO2":1.66180, "w_MgF2": 1.29757, "theta":hwp_theta, "delta_theta": offset_hwp},
                     "tag": "internal",
                 },
                 "lp" : {  # calibration polarizer for internal calibration source
@@ -318,12 +315,12 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-        "pickoff": {"phi": 0.5,"epsilon":0,"delta_theta":4}, 
+        "pickoff": {"phi": 0.5}, 
     }
 
     # Define some bounds
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS, ADD NEW BOUNDS OR CHANGE THEM
-    offset_bounds = (-5,5)
+    offset_bounds = (-10,10)
     hwpstd = 0.1*np.abs(hwp_phi)
     hwp_phi_bounds = (hwp_phi-hwpstd, hwp_phi+hwpstd)
     imrstd = 0.1*np.abs(imr_phi)
@@ -353,7 +350,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [dichroic_phi_bounds,(0,1),offset_bounds],mode='least_squares')
+            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [dichroic_phi_bounds],mode='least_squares')
         print(result)
 
         # Update p0 with new values
