@@ -271,7 +271,7 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     if custom_function is not None:
         return custom_function(p, output_intensities, dataset, errors)
     else:
-        return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
+        return 0.5 * np.sum((output_intensities - dataset) ** 2) # errors gone
 
 def cost(p, system_parameters, system_mm, dataset, errors, configuration_list, 
          s_in=None,custom_function=None,process_dataset=None,process_errors=None,process_model=None,include_sums=True):
@@ -355,7 +355,7 @@ def cost(p, system_parameters, system_mm, dataset, errors, configuration_list,
     # Convert lists to numpy arrays, only differences used
     residuals = output_intensities - dataset
     #chi_squared = np.sum((residuals / errors) ** 2)
-    cost = residuals / errors
+    cost = residuals # REMOVED ERRORS
 
     if custom_function is not None:
         return custom_function(p, output_intensities, dataset, errors)
