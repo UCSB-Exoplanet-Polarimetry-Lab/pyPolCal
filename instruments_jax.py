@@ -17,6 +17,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 from jax import jit
+jax.config.update("jax_enable_x64", True)
 
 #######################################################
 ###### Functions related to reading in .csv values ####

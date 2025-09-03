@@ -103,8 +103,9 @@ def summarize_posteriors(chain, param_names, system_dict, txt_file_path=None, tx
     else:
         raise ValueError("You must supply txt_file_path to extract parameter keys.")
 
-    # Compute medians
+    # Compute medians and build filtered parameter dict
     new_param_values = []
+    filtered_param_dict = {}
     for i, name in enumerate(param_names):
         val = flat_chain[:, i] / (2 * np.pi) if ".phi" in name else flat_chain[:, i]
         median = np.median(val)
@@ -112,11 +113,16 @@ def summarize_posteriors(chain, param_names, system_dict, txt_file_path=None, tx
         new_param_values.append(median)
         print(f"{name} ({'waves' if '.phi' in name else ''}): {median:.5f} ± {std:.5f}")
 
+        # Parse component and parameter name
+        if "." in name:
+            comp, param = name.split(".", 1)
+            if comp not in filtered_param_dict:
+                filtered_param_dict[comp] = {}
+            filtered_param_dict[comp][param] = float(median)
+
     if txt_save_file_path is not None:
-        updated_mm = inst.update_system_mm(new_param_values, p_keys, system_mm)
-        updated_dict = updated_mm.master_property_dict
         with open(txt_save_file_path, "w") as f:
-            json.dump(updated_dict, f, indent=4)
+            json.dump(filtered_param_dict, f, indent=4)
 
 def plot_mcmc_fits_double_diff_sum(
     h5_filename,
