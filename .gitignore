@@ -4,8 +4,8 @@
 /figures
 /__pycache__
 .DS_Store
-.json
-*.json
+
+
 *.DS_Store
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
