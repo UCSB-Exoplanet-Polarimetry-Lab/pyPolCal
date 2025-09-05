@@ -35,9 +35,9 @@ def update_p0(p0, result):
     for (component, parameter), value in zip(p0_keywords, result):
         p0[component][parameter] = value
         
-def minimize_system_mueller_matrix(p0, system_mm, dataset, errors, 
-    configuration_list, s_in = None, custom_function = None, 
-    process_dataset = None, process_errors = None, process_model = None, include_sums=True,
+def minimize_system_mueller_matrix(p0, system_mm, dataset, 
+    configuration_list, errors=None, s_in = None, custom_function = None, 
+    process_dataset = None, process_errors = None, process_model = None, include_sums=True, 
     bounds = None, mode = 'minimize'):
     '''
     Perform a minimization on a dataset, using a System Mueller Matrix model. This function
@@ -68,18 +68,21 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
     dataset: list or np.ndarray
         Measured data. We currently use interleaved single differences and sums as the initial input.
 
-    errors: list or np.ndarray
-        Corresponding errors to measurements.
-
     configuration_list: list of dict of dict
         Instrument configuration for each measurement. Each component corresponds to a 
         component in the system dictionary used to generate the system Mueller
         Matrix and modifies the Mueller matrix to account for changing parts such as HWP angles, 
         derotator angles, etc. Can be obtained from read_csv().
+    
+        
 
         Example list for 2 measurements: 
             [{'hwp': {'theta': 0.0}, 'image_rotator': {'theta': 45.0}}, 
             {'hwp': {'theta': 11.25}, 'image_rotator': {'theta': 45.0}}]
+
+    
+    errors: list or np.ndarray, optional
+        Corresponding errors to measurements. Not required for internal calibration.
 
     s_in: list or np.ndarray, optional
         Input Stokes vector (default: [1, 0, 0, 0])
@@ -137,7 +140,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
     # Running scipy.minimize
     if mode == 'minimize':
         result = minimize(logl, p0_values, 
-            args=(p0_keywords, system_mm, dataset, errors, configuration_list, 
+            args=(p0_keywords, system_mm, dataset, configuration_list, errors,
                 s_in, custom_function, process_dataset, process_errors, process_model,include_sums), 
                 method='L-BFGS-B', bounds = bounds)
         
@@ -146,7 +149,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
         lower_bounds = [bound[0] for bound in bounds]
         upper_bounds = [bound[1] for bound in bounds]
         result = least_squares(cost, p0_values, 
-            args=(p0_keywords, system_mm, dataset, errors, configuration_list,
+            args=(p0_keywords, system_mm, dataset, configuration_list, errors,
                 s_in,custom_function,process_dataset,process_errors,process_model,include_sums), method='trf', bounds = (lower_bounds, upper_bounds),verbose=2)
         J = result.jac
         residual = result.fun
@@ -171,7 +174,7 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset, errors,
     elif mode =='minimize':
         return result, logl_value
     
-def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
+def logl(p, system_parameters, system_mm, dataset, configuration_list, errors=None,
          s_in=None, custom_function=None, process_dataset=None, process_errors=None, 
          process_model=None,include_sums=True):
     """
@@ -194,8 +197,7 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
 
     dataset : np.ndarray
         Interleaved observed data values (e.g., [dd1, ds1, dd2, ds2, ...]).
-    errors : np.ndarray
-        Measurement errors associated with `dataset`, in the same order.
+
 
     configuration_list: list of dict of dict
         Instrument configuration for each measurement. Each component corresponds to a 
@@ -206,6 +208,9 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
         Example list for 2 measurements: 
             [{'hwp': {'theta': 0.0}, 'image_rotator': {'theta': 45.0}}, 
             {'hwp': {'theta': 11.25}, 'image_rotator': {'theta': 45.0}}]
+
+    errors : np.ndarray, optional
+        Measurement errors associated with `dataset`, in the same order.
 
     s_in: list or np.ndarray, optional
         Input Stokes vector (default: [1, 0, 0, 0])
@@ -244,7 +249,6 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
         s_in=s_in, process_model=process_model)
     # Convert lists to numpy arrays
     dataset = np.array(dataset)
-    errors = np.array(errors)
 
     # Optionally parse the dataset and output intensities (e.g., normalized difference)
     if process_dataset is not None:
@@ -252,28 +256,31 @@ def logl(p, system_parameters, system_mm, dataset, errors, configuration_list,
     elif process_dataset is None:
         processed_dataset = copy.deepcopy(dataset)
     # Optionally parse the dataset and output intensities (e.g., normalized difference)
-    if process_errors is not None:
-        processed_errors = process_errors(copy.deepcopy(errors), 
-            copy.deepcopy(dataset))
-    elif process_errors is None:
-        processed_errors = copy.deepcopy(errors)
+    if errors is not None:
+        if process_errors is not None:
+            processed_errors = process_errors(copy.deepcopy(errors), 
+                copy.deepcopy(dataset))
+        elif process_errors is None:
+            processed_errors = copy.deepcopy(errors)
+        errors = copy.deepcopy(processed_errors)
 
     dataset = copy.deepcopy(processed_dataset)
-    errors = copy.deepcopy(processed_errors)
-    # Note - raised floor fromm 1e-3 to 1e-7 to be compatible with small normalized errors
-    errors = np.maximum(errors, 1e-7)
+    
     # Calculate log likelihood
     if include_sums is True: # take out differences
         dataset=dataset[::2]
-        errors=errors[::2]
+        if errors is not None:
+            errors=errors[::2]
         output_intensities=output_intensities[::2]
 
     if custom_function is not None:
         return custom_function(p, output_intensities, dataset, errors)
+    elif errors is None:
+        return 0.5 * np.sum((output_intensities - dataset) ** 2) 
     else:
-        return 0.5 * np.sum((output_intensities - dataset) ** 2) # errors gone
+        return 0.5 * np.sum(((output_intensities - dataset) / errors) ** 2) + np.sum(np.log(errors))
 
-def cost(p, system_parameters, system_mm, dataset, errors, configuration_list, 
+def cost(p, system_parameters, system_mm, dataset, configuration_list, errors=None,
          s_in=None,custom_function=None,process_dataset=None,process_errors=None,process_model=None,include_sums=True):
     """
     Cost function that describes how well Mueller matrix parameters fit data.
@@ -283,17 +290,23 @@ def cost(p, system_parameters, system_mm, dataset, errors, configuration_list,
     ----------
     p : list of float
         List of current parameter values to optimize (flattened).
+
     system_parameters : list of [str, str]
         List of [component_name, parameter_name] pairs corresponding to `p`.
+
     system_mm : pyMuellerMat.MuellerMat.SystemMuellerMatrix
         Mueller matrix model of the optical system.
+
     dataset : np.ndarray
         Interleaved observed data values (e.g., [dd1, ds1, dd2, ds2, ...]).
-    errors : np.ndarray
-        Measurement errors associated with `dataset`, in the same order.
+
     configuration_list : list of dict
         Each dict describes the instrument configuration for a measurement, including 
         settings like HWP angle, FLC state, etc.
+
+    errors : np.ndarray, optional
+        Measurement errors associated with `dataset`, in the same order.
+
     s_in: list or np.ndarray, optional
         Input Stokes vector (default: [1, 0, 0, 0])
     
@@ -319,6 +332,7 @@ def cost(p, system_parameters, system_mm, dataset, errors, configuration_list,
         Whether or not to index out the second element of interleaved differences and sums.
         Only use if model, data, and errors are processed. This is set as True because 
         it works with VAMPIRES. This must be set to false for CHARIS.
+        
     Returns
     -------
     np.ndarray
@@ -334,31 +348,39 @@ def cost(p, system_parameters, system_mm, dataset, errors, configuration_list,
     # Processing model converts raw L/R intensities to double differences
     # Processing errors converts interleaved single sum/difference errors to an array
     # of double difference errors
-    if process_errors is not None:
-        processed_errors = process_errors(copy.deepcopy(errors), 
-            copy.deepcopy(dataset))
-    elif process_errors is None:
-        processed_errors = copy.deepcopy(errors)
+    if errors is not None:
+        if process_errors is not None:
+            processed_errors = process_errors(copy.deepcopy(errors), 
+                copy.deepcopy(dataset))
+            errors = copy.deepcopy(processed_errors)
+        elif process_errors is None:
+            processed_errors = copy.deepcopy(errors)
+       
     if process_dataset is not None:
         processed_dataset = process_dataset(copy.deepcopy(dataset))
     elif process_dataset is None:
         processed_dataset = copy.deepcopy(dataset)
 
     dataset = copy.deepcopy(processed_dataset)
-    errors = copy.deepcopy(processed_errors)
-    # Numerical floor to avoid division by tiny errors
-    errors = np.maximum(errors, 1e-7)
+    
     if include_sums is True:
         dataset=dataset[::2]
-        errors=errors[::2]
         output_intensities=output_intensities[::2]
+        if errors is not None:
+            errors=errors[::2]
     # Convert lists to numpy arrays, only differences used
     residuals = output_intensities - dataset
     #chi_squared = np.sum((residuals / errors) ** 2)
-    cost = residuals # REMOVED ERRORS
+
+    cost = residuals 
+
+    # optional errors
+    if errors is not None:
+        cost = residuals / errors
 
     if custom_function is not None:
         return custom_function(p, output_intensities, dataset, errors)
+    
     else:
         return cost
 

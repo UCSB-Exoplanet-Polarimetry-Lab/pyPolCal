@@ -122,8 +122,10 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     # Define initial guesses for our parameters 
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
-    p0 = {"image_rotator": {"phi":imr_phi},
+    p0 = {"hwp": {"phi":hwp_phi, "delta_theta": offset_hwp},
+          "image_rotator": {"phi":imr_phi, "delta_theta": offset_imr},
           "wollaston": {"eta": 1},
+            "lp": {"epsilon": epsilon_cal, "delta_theta": offset_cal}
          }
 
     # Define some bounds
@@ -158,7 +160,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [imr_phi_bounds,(0,1)],mode='least_squares')
+             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [hwp_phi_bounds,offset_bounds,imr_phi_bounds,offset_bounds,(0,1),epsilon_cal_bounds,offset_bounds],mode='least_squares')
         print(result)
 
         # Update p0 with new values
@@ -352,7 +354,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [dichroic_phi_bounds],mode='least_squares')
+            configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [dichroic_phi_bounds],mode='least_squares')
         print(result)
 
         # Update p0 with new values

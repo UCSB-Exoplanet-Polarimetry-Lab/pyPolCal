@@ -205,12 +205,12 @@ def generate_measurement(system_mm, s_in = np.array([1, 0, 0, 0])):
 
 # Main MCMC function
 def run_mcmc(
-    p0_dict, system_mm, dataset, errors, configuration_list,
-    priors, bounds, logl_function, output_h5_file,
-    nwalkers=64, nsteps=10000, pool_processes=None, 
-    s_in=np.array([1, 0, 0, 0]), process_dataset=None, 
+    p0_dict, system_mm, dataset, configuration_list,
+    priors, bounds, output_h5_file,
+    nwalkers=64, nsteps=10000, errors=None, pool_processes=None,
+    s_in=np.array([1, 0, 0, 0]), process_dataset=None,
     process_errors=None, process_model=None, resume=True,
-    include_log_f=False, log_f=-3.0,plot=False, include_sums=True
+    include_log_f=False, log_f=-3.0, plot=False, include_sums=True
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
@@ -226,23 +226,20 @@ def run_mcmc(
         The optical system's Mueller matrix object.
     dataset : np.ndarray
         Observed data values (interleaved single differences and sums).
-    errors : np.ndarray
-        Standard deviations associated with each element of `dataset`.
     configuration_list : list of dict
         List of per-measurement configurations (e.g., HWP/FLC angles).
     priors : dict
         Dictionary mapping parameter names to prior functions.
     bounds : dict
         Dictionary of (low, high) tuples for each parameter.
-    logl_function : callable
-        Log-likelihood function to evaluate model fit. CURRENTLY DOESN'T WORK, 
-        USES logl_with_logf()
     output_h5_file : str
         Path to the output HDF5 file used to store MCMC results.
     nwalkers : int, optional
         Number of walkers (default is max of 2x parameters or process-scaled).
     nsteps : int, optional
         Number of steps for each walker.
+    errors : np.ndarray, optional
+        Standard deviations associated with each element of `dataset`.
     pool_processes : int, optional
         Number of parallel processes to use.
     s_in : np.ndarray, optional
@@ -380,18 +377,23 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
                             s_in=s_in, process_model=process_model)
 
     dataset = jnp.array(dataset)
-    errors = jnp.array(errors)
-    if process_errors is not None:
-        errors = process_errors(copy.deepcopy(errors), copy.deepcopy(dataset))
+    if errors is not None:
+        errors = jnp.array(errors)
+        if process_errors is not None:
+            errors = process_errors(copy.deepcopy(errors), copy.deepcopy(dataset))
     if process_dataset is not None:
         dataset = process_dataset(copy.deepcopy(dataset))
 
     if include_sums is False:
      dataset = dataset[::2]
-     errors=errors[::2]
+     if errors is not None:
+         errors = errors[::2]
      model_output = model_output[::2]
-    sigma2 = errors**2 + jnp.exp(2 * log_f)
-    return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
+    if errors is not None:
+        sigma2 = errors**2 + jnp.exp(2 * log_f)
+        return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
+    else:
+        return -0.5 * jnp.sum((dataset - model_output)**2)
 
 
 # def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_list):
@@ -559,83 +561,6 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
 
     return output_intensities
 
-
-def logl(p, system_parameters, system_mm, dataset, errors, configuration_list, 
-         s_in=None, logl_function=None, process_dataset=None, process_errors=None, 
-         process_model=None):
-    """
-    Compute the log-likelihood of a model given a dataset and system configuration.
-
-    This function evaluates how well a set of system Mueller matrix parameters
-    (given by `p`) reproduce the observed dataset, using a chi-squared-based 
-    likelihood metric or a user-defined log-likelihood function.
-
-    Parameters
-    ----------
-    p : list of float
-        List of current parameter values to optimize (flattened).
-    system_parameters : list of [str, str]
-        List of [component_name, parameter_name] pairs corresponding to `p`.
-    system_mm : pyMuellerMat.MuellerMat.SystemMuellerMatrix
-        Mueller matrix model of the optical system.
-    dataset : np.ndarray
-        Interleaved observed data values (e.g., [dd1, ds1, dd2, ds2, ...]).
-    errors : np.ndarray
-        Measurement errors associated with `dataset`, in the same order.
-    configuration_list : list of dict
-        Each dict describes the instrument configuration for a measurement, including 
-        settings like HWP angle, FLC state, etc.
-    s_in : np.ndarray, optional
-        Input Stokes vector, default is unpolarized light [1, 0, 0, 0].
-    logl_function : callable, optional
-        A custom function with signature `logl_function(p, model, data, errors)` 
-        that returns the log-likelihood. If None, default chi-squared is used.
-    process_dataset : callable, optional
-        Function to transform the dataset (e.g., normalize or reduce dimensionality).
-    process_errors : callable, optional
-        Function to propagate errors through the same transformation as `process_dataset`.
-    process_model : callable, optional
-        Function to apply the same transformation to the model predictions as to the data.
-
-    Returns
-    -------
-    float
-        The computed log-likelihood value (higher is better).
-    """
-
-    # print("Entered logl")
-
-    # Generating a list of model predicted values for each configuration - already parsed
-    output_intensities = model(p, system_parameters, system_mm, configuration_list, 
-        s_in=s_in, process_model=process_model)
-
-    # Convert lists to numpy arrays
-    dataset = np.array(dataset)
-    errors = np.array(errors)
-
-    # print("Output Intensities: ", np.shape(output_intensities))
-
-    # Optionally parse the dataset and output intensities (e.g., normalized difference)
-    # print("Pre process_dataset dataset shape: ", np.shape(dataset))
-    if process_dataset is not None:
-        processed_dataset = process_dataset(copy.deepcopy(dataset))
-    # print("Post process_dataset dataset shape: ", np.shape(processed_dataset))
-
-    # Optionally parse the dataset and output intensities (e.g., normalized difference)
-    # print("Pre process_errors errors shape: ", np.shape(dataset))
-    if process_errors is not None:
-        processed_errors = process_errors(copy.deepcopy(errors), 
-            copy.deepcopy(dataset))
-    # print("Post process_errors errors shape: ", np.shape(processed_errors))
-
-    dataset = copy.deepcopy(processed_dataset)
-    errors = copy.deepcopy(processed_errors)
-
-    # Calculate log likelihood
-    if logl_function is not None:
-        return logl_function(p, output_intensities, dataset, errors)
-    else: 
-        return 0.5 * np.sum((output_intensities - dataset) ** 2 / errors ** 2)
 
 @jit
 def build_differences_and_sums(intensities):
