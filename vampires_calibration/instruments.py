@@ -3,7 +3,7 @@ from pathlib import Path
 import copy
 from vampires_calibration.constants import wavelength_bins
 from pyMuellerMat.physical_models.charis_physical_models import IMR_retardance, HWP_retardance, M3_retardance, M3_diattenuation
-from vampires_calibration.csv_tools import read_csv
+from vampires_calibration.csv_tools import read_csv, model_data
 from vampires_calibration.utils import generate_system_mueller_matrix,process_dataset,process_errors,process_model,parse_configuration
 from vampires_calibration.fitting import update_p0,update_system_mm,minimize_system_mueller_matrix,model
 from vampires_calibration.plotting import plot_data_and_model
@@ -96,11 +96,13 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
             "properties" : {"beam": 'o','eta':1}, 
             "tag": "internal",
             },
+
             "image_rotator" : {
-                "type" : "elliptical_retarder_function",
-                "properties" : {"phi_45":0,"phi_h": imr_phi, "phi_r": 0, "theta": imr_theta, "delta_theta": offset_imr},
-                "tag": "internal",
+            "type" : "elliptical_retarder_function",
+            "properties" : {"phi_45":0,"phi_h": imr_phi, "phi_r": 0,"phi_45":0, "theta": imr_theta, "delta_theta": offset_imr},
+            "tag": "internal",
             },
+            
             "hwp" : {
                 "type" : "general_retarder_function",
                 "properties" : {"phi": hwp_phi, "theta": hwp_theta, "delta_theta": offset_hwp},
@@ -190,9 +192,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # Plot the modeled and observed values
     if plot_path:
-        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], include_sums=False,save_path=plot_path)
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, diffs_sums2,configuration_list, interleaved_stds_forlplotfunc, wavelength= wavelength_bins[wavelength_bin], include_sums=False,save_path=plot_path)
     else:
-        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin],include_sums=False)
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, diffs_sums2,configuration_list, interleaved_stds_forlplotfunc, wavelength= wavelength_bins[wavelength_bin],include_sums=False)
     
     # Print the Mueller matrix
     
@@ -248,6 +250,8 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
       van Holstein et al. 2020.
     fig : MatPlotLib figure object
     ax : MatPlotLib axis object
+    s_res : float
+      The polarimetric accuracy as defined in appendix E of van Holstein et al. 2020.
     """
     # Check file paths
     filepath = Path(csv_path)
@@ -273,14 +277,19 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
     #configuration_list = configuration_list 
 
     # Loading in past fits 
-    offset_imr = 0.18379 # derotator offset
-    offset_hwp = -0.88170 # HWP offset
-    offset_cal = -0.44270 # calibration polarizer offset
+    offset_imr = -0.13959 # derotator offset
+    offset_hwp = -1.59338 # HWP offset
+    offset_cal = -0.11835 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins)[wavelength_bin]
     hwp_phi = HWP_retardance(wavelength_bins)[wavelength_bin]
     epsilon_cal = 1
+    df = model_data('/Users/thomasmcintosh/Desktop/CHARIS-REU/Fitting/naive_fitting/elliptical_imr')
+    imr_phi_h = df['image_rotator_phi_h'][wavelength_bin]
+    imr_phi_r = df['image_rotator_phi_r'][wavelength_bin]
+    imr_phi_45 = df['image_rotator_phi_45'][wavelength_bin]
+    wol_eta = df['wollaston_eta'][wavelength_bin]
 
     # Define instrument configuration as system dictionary
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
@@ -288,18 +297,23 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
             "components" : {
                 "wollaston" : {
                 "type" : "wollaston_prism_function",
-                "properties" : {"beam": 'o'}, 
+                "properties" : {"beam": 'o', 'eta':wol_eta}, 
                 "tag": "internal",
+                },
+                "pickoff_ret" : {
+                    "type" : "elliptical_retarder_function",
+                    "properties" : {"phi_45":0, "phi_h":0, "phi_r": 0, "delta_theta":0},
+                    "tag": "internal",
                 },
                 
                 "pickoff" : {
-                    "type" : "diattenuator_retarder_function",
-                    "properties" : {"phi": 0,"epsilon":0, "delta_theta":0 },
+                    "type" : "general_diattenuator_function",
+                    "properties" : {"d_h":0, "d_45":0, "d_r": 0, "T_avg":0,"delta_theta":0},
                     "tag": "internal",
                 },      
                 "image_rotator" : {
-                    "type" : "SCExAO_IMR_function",
-                    "properties" : {"wavelength":wavelength_bins[wavelength_bin], "d": 259.19055, "theta": imr_theta, "delta_theta": offset_imr},
+                    "type" : "elliptical_retarder_function",
+                    "properties" : {"phi_45":0,"phi_h": imr_phi_h, "phi_r": imr_phi_r,"phi_45":imr_phi_45, "theta": imr_theta, "delta_theta": offset_imr},
                     "tag": "internal",
                 },
                 "hwp" : {
@@ -321,12 +335,12 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-        "pickoff": {"phi": 0.5}, 
+        "pickoff_ret": {"phi_h":0, "phi_45":0, "phi_r": 0, "delta_theta":0},
     }
 
     # Define some bounds
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS, ADD NEW BOUNDS OR CHANGE THEM
-    offset_bounds = (-10,10)
+    offset_bounds = (-50,50)
     hwpstd = 0.1*np.abs(hwp_phi)
     hwp_phi_bounds = (hwp_phi-hwpstd, hwp_phi+hwpstd)
     imrstd = 0.1*np.abs(imr_phi)
@@ -338,7 +352,8 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
     epsilon_cal_bounds = (0.9*epsilon_cal, 1)
     #calostd = 0.1 *np.abs(offset_cal)
     #offset_cal_bounds = (-15, 15)
-    dichroic_phi_bounds = (0,np.pi)
+    dichroic_phi_bounds = (0,2*np.pi)
+    pol_bounds = (0,1)
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
  
@@ -356,7 +371,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [dichroic_phi_bounds],mode='least_squares')
+            configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [dichroic_phi_bounds, dichroic_phi_bounds,dichroic_phi_bounds,offset_bounds],mode='least_squares')
         print(result)
 
         # Update p0 with new values
@@ -400,16 +415,19 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
     print(len(interleaved_values), len(diffs_sums2))
     data_dd = process_dataset(interleaved_values)[::2]
     model_dd = diffs_sums2[::2]
-    residuals = data_dd - model_dd
+    residuals = data_dd*100 - model_dd*100
+    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-3))
+    print("s_res:", s_res)
     print("Residuals range:", residuals.min(), residuals.max())
     print("Error:", error)
 
+    
     # Save system dictionary to a json file
 
     with open (new_config_dict_path, 'w') as f:
         json.dump(p0, f, indent=4)
     error = np.array(error)
-    return error, fig, ax
+    return error, fig, ax, s_res
 
 
 
