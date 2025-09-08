@@ -25,8 +25,8 @@ import pandas as pd
 #######################################
 
 
-def plot_data_and_model(interleaved_values, interleaved_stds, model, 
-    configuration_list, imr_theta_filter=None, wavelength=None, save_path = None, include_sums=True,title=None):
+def plot_data_and_model(interleaved_values, model, 
+    configuration_list, interleaved_stds=None,imr_theta_filter=None, wavelength=None, save_path = None, include_sums=True,title=None):
     """
     Plots double difference and double sum measurements alongside model predictions,
     grouped by image rotator angle (D_IMRANG). Optionally filters by a specific 
@@ -38,8 +38,6 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         Interleaved array of observed single difference and single sum values.
         Expected format: [sd1, ss1, sd2, ss2, ...]. 
 
-    interleaved_stds : np.ndarray
-        Interleaved array of standard deviations corresponding to the observed values.
 
     model : np.ndarray
         Interleaved array of model-predicted double difference and double sum values.
@@ -48,6 +46,9 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     configuration_list : list of dict
         List of system configurations (one for each measurement), where each dictionary 
         contains component settings like HWP and image rotator angles.
+
+    interleaved_stds : np.ndarray
+        Interleaved array of standard deviations corresponding to the observed values.
 
     imr_theta_filter : float, optional
         If provided, only measurements with this image rotator angle (rounded to 0.1°) 
@@ -69,17 +70,18 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     fig, ax : matplotlib Figure and Axes
         A tuple containing the Figure and Axes objects of the plot.
     """
-    # Calculate double differences and sums from interleaved single differences if in VAMPIRES mode 
-    
+    # Create an array of zeroes if no stds are provided
+    if interleaved_stds is None:
+        interleaved_stds = np.zeros_like(interleaved_values)
     interleaved_stds = process_errors(interleaved_stds, interleaved_values)
+    dd_stds = interleaved_stds[::2]
+    ds_stds = interleaved_stds[1::2]
     interleaved_values = process_dataset(interleaved_values)
     
 
     # Extract double differences and double sums
     dd_values = interleaved_values[::2]
     ds_values = interleaved_values[1::2]
-    dd_stds = interleaved_stds[::2]
-    ds_stds = interleaved_stds[1::2]
     dd_model = model[::2]
     ds_model = model[1::2]
 
@@ -290,8 +292,8 @@ def plot_config_dict_vs_wavelength(component, parameter, json_dir, custom_ax=Non
     return parameters,fig,ax
 
 
-def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model, 
-    configuration_list, hwp_theta_filter=None, wavelength=None, save_path = None,title=None):
+def plot_data_and_model_x_imr(interleaved_values, model, 
+    configuration_list, interleaved_stds=None, hwp_theta_filter=None, wavelength=None, save_path = None,title=None):
     """
     Plots single differences vs imr angle for some amount of HWP angles. Similar to figure 6 in
     Joost t Hart 2021.
@@ -302,8 +304,6 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
         Interleaved array of observed 
         single differences and sums.
 
-    interleaved_stds : np.ndarray
-        Interleaved array of standard deviations corresponding to the observed values.
 
     model : np.ndarray
         Interleaved array of model-predicted double difference and double sum values.
@@ -312,6 +312,9 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
     configuration_list : list of dict
         List of system configurations (one for each measurement), where each dictionary 
         contains component settings like HWP and image rotator angles.
+
+    interleaved_stds : np.ndarray, optional
+        Interleaved array of standard deviations corresponding to the observed values.
 
     hwp_theta_filter : float, optional
         If provided, only measurements with this hwp angle will be plotted.
@@ -326,6 +329,9 @@ def plot_data_and_model_x_imr(interleaved_values, interleaved_stds, model,
     -------
     fig, ax, small_ax
     """
+    # Create an array of zeroes if no stds are provided
+    if interleaved_stds is None:
+        interleaved_stds = np.zeros_like(interleaved_values)
     # Process into double diffs
     interleaved_stds = process_errors(interleaved_stds,interleaved_values)
     interleaved_values = process_dataset(interleaved_values)
