@@ -47,6 +47,8 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
       van Holstein et al. 2020.
     fig : MatPlotLib figure object
     ax : MatPlotLib axis object
+    s_res : float
+      The polarimetric accuracy as defined in appendix E of van Holstein et al. 2020.
     """
     # Check file paths
     filepath = Path(csv_path)
@@ -89,17 +91,14 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     system_dict = {
         "components" : {
 
-
-
             "wollaston" : {
             "type" : "wollaston_prism_function",
             "properties" : {"beam": 'o','eta':1}, 
             "tag": "internal",
             },
-
             "image_rotator" : {
-                "type" : "diattenuator_retarder_function",
-                "properties" : {"epsilon":0,"phi": imr_phi, "theta": imr_theta, "delta_theta": offset_imr},
+                "type" : "elliptical_retarder_function",
+                "properties" : {"phi_45":0,"phi_h": imr_phi, "phi_r": 0, "theta": imr_theta, "delta_theta": offset_imr},
                 "tag": "internal",
             },
             "hwp" : {
@@ -122,10 +121,9 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     # Define initial guesses for our parameters 
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
-    p0 = {"hwp": {"phi":hwp_phi, "delta_theta": offset_hwp},
-          "image_rotator": {"phi":imr_phi, "delta_theta": offset_imr},
-          "wollaston": {"eta": 1},
-            "lp": {"epsilon": epsilon_cal, "delta_theta": offset_cal}
+    p0 = {
+          "image_rotator": {"phi_h":imr_phi, "phi_r":0, "phi_45":0},
+          "wollaston": {"eta": 1}
          }
 
     # Define some bounds
@@ -143,6 +141,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     #calostd = 0.1 *np.abs(offset_cal)
     #offset_cal_bounds = (-15, 15)
     dichroic_phi_bounds = (0,np.pi)
+    ret_bounds = (0,2*np.pi)
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
  
@@ -160,7 +159,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [hwp_phi_bounds,offset_bounds,imr_phi_bounds,offset_bounds,(0,1),epsilon_cal_bounds,offset_bounds],mode='least_squares')
+             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [ret_bounds,ret_bounds,ret_bounds,(0,1)],mode='least_squares')
         print(result)
 
         # Update p0 with new values
@@ -196,7 +195,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
         fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin],include_sums=False)
     
     # Print the Mueller matrix
-
+    
     print("Updated Mueller Matrix:")
     print(updated_system_mm.evaluate())
 
@@ -204,8 +203,11 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     print(len(interleaved_values), len(diffs_sums2))
     data_dd = process_dataset(interleaved_values)[::2]
     model_dd = diffs_sums2[::2]
-    residuals = data_dd - model_dd
+    residuals = data_dd*100 - model_dd*100
+    # calculate s_res as in appendix E of SPHERE cal paper
+    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-8))
     print("Residuals range:", residuals.min(), residuals.max())
+    print("s_res:", s_res)
     print("Error:", error)
 
     # Save system dictionary to a json file
@@ -213,7 +215,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     with open (new_config_dict_path, 'w') as f:
         json.dump(p0, f, indent=4)
     error = np.array(error)
-    return error, fig, ax
+    return error, fig, ax, s_res
 
 
 def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):
