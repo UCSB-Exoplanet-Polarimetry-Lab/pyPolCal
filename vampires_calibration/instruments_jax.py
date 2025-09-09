@@ -209,8 +209,8 @@ def run_mcmc(
     priors, bounds, output_h5_file,
     nwalkers=64, nsteps=10000, errors=None, pool_processes=None,
     s_in=np.array([1, 0, 0, 0]), process_dataset=None,
-    process_errors=None, process_model=None, resume=True,
-    include_log_f=False, log_f=-3.0, plot=False, include_sums=True
+    process_errors=None, process_model=None,
+    log_f=-3.0, plot=False, include_sums=True
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
@@ -250,11 +250,6 @@ def run_mcmc(
         Function to process errors in the same way as the dataset.
     process_model : callable, optional
         Function to process model outputs before likelihood comparison.
-    resume : bool, optional
-        If True and the HDF5 file exists, resume from saved state.
-    include_log_f : bool, optional
-        If True, appends a `log_f` noise inflation parameter to the parameter list. CURRENTLY DOES NOT WORK,
-        LOGF IS ALWAYS INCLUDED.
     log_f0 : float, optional
         Initial value for `log_f` if `include_log_f` is True.
     plot : bool, optional
@@ -273,17 +268,19 @@ def run_mcmc(
 
     p0_values, p_keys = parse_configuration(p0_dict)
 
-    if include_log_f:
-        p0_values = p0_values + [log_f]             
+    
+    p0_values = p0_values + [log_f]             
 
     ndim = len(p0_values)
 
-    resume = resume and os.path.exists(output_h5_file)
+    #resume = resume and os.path.exists(output_h5_file)
    
     backend = emcee.backends.HDFBackend(output_h5_file)
 
-    if not resume or backend.iteration == 0:
-        backend.reset(nwalkers, ndim)
+    # if not resume or backend.iteration == 0:
+    #     backend.reset(nwalkers, ndim)
+    #if backend.iteration == 0:
+    backend.reset(nwalkers, ndim)
 
     pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
 
@@ -393,7 +390,7 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
         sigma2 = errors**2 + jnp.exp(2 * log_f)
         return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
     else:
-        return -0.5 * jnp.sum((dataset - model_output)**2)
+        return -0.5 * jnp.sum((dataset - model_output)**2 )
 
 
 # def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_list):
