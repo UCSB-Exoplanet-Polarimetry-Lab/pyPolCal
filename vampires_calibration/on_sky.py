@@ -388,7 +388,6 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
 
     # Read in data
     interleaved_values, interleaved_stds, configuration_list = read_csv(filepath,mode='m3')
-
     # this works, not really sure why
     interleaved_values_forplotfunc = copy.deepcopy(interleaved_values)
     interleaved_stds_forlplotfunc = copy.deepcopy(interleaved_stds)
@@ -438,10 +437,11 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
                 "tag":"internal",
             },
             "M3" : {
-                "type" : "general_diattenuator_retarder_function",
-                "properties" : {"d_h": m3_diat, "phi_h": m3_ret, "d_45": 0, "phi_45": 0, "d_r": 0, "phi_r": 0,"theta": 0, "delta_theta": 0},
+                "type" : "diattenuator_retarder_function",
+                "properties" : {"epsilon": m3_diat, "theta": 0, "delta_theta":0},
                 "tag": "internal",
             },
+
             "parang_rot" : {
                 "type" : "rotator_function",
                 "properties" : {"pa":0},
@@ -457,13 +457,13 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-        "M3" : 
-            {"d_h": m3_diat, "d_45": 0, "d_r": 0},
+        "M3": {
+            "epsilon": m3_diat, "delta_theta": 0
+        }
     }
-
     # Define some bounds
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS, ADD NEW BOUNDS OR CHANGE THEM
-    polbounds = (0,1)
+    polbounds = (-np.sqrt(3),np.sqrt(3)) 
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
  
@@ -481,7 +481,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl,error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, configuration_list,
-            interleaved_stds, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [polbounds,polbounds,polbounds],mode='least_squares')
+            interleaved_stds, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [(-1,1),(-15,15)],mode='least_squares')
         print(result)
 
         # Update p0 with new values
@@ -536,5 +536,5 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
 
     with open (new_config_dict_path, 'w') as f:
         json.dump(p0, f, indent=4)
-    error = np.array(error)
-    return error, fig, ax, s_res
+    #error = np.array(error)
+    return error,fig, ax, s_res

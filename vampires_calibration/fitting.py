@@ -139,11 +139,12 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset,
 
     # Running scipy.minimize
     if mode == 'minimize':
+
         result = minimize(logl, p0_values, 
             args=(p0_keywords, system_mm, dataset, configuration_list, errors,
                 s_in, custom_function, process_dataset, process_errors, process_model,include_sums), 
-                method='L-BFGS-B', bounds = bounds)
-        
+                bounds = bounds)
+
 
     elif mode == 'least_squares':
         lower_bounds = [bound[0] for bound in bounds]
@@ -164,8 +165,8 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset,
                     
     # Saving the final result's logl value
     if mode == 'minimize':
-        logl_value = logl(result.x, p0_keywords, system_mm, dataset, errors, 
-            configuration_list, s_in=s_in, custom_function=custom_function, 
+        logl_value = logl(result.x, p0_keywords, system_mm, dataset, 
+            configuration_list, errors, s_in=s_in, custom_function=custom_function, 
             process_dataset=process_dataset, process_errors = process_errors, 
             process_model = process_model,include_sums=include_sums)
     if mode == 'least_squares':
@@ -242,7 +243,6 @@ def logl(p, system_parameters, system_mm, dataset, configuration_list, errors=No
     float
         The computed negative log-likelihood value (lower is better).
     """
-
 
     # Generating a list of model predicted values for each configuration - already parsed
     output_intensities = model(p, system_parameters, system_mm, configuration_list, 
