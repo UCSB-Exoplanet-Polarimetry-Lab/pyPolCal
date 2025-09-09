@@ -14,7 +14,7 @@ from vampires_calibration.utils import generate_system_mueller_matrix,process_da
 from vampires_calibration.fitting import update_p0,update_system_mm,minimize_system_mueller_matrix,model
 from vampires_calibration.plotting import plot_data_and_model
 import traceback
-from vampires_calibration.csv_tools import arr_csv_HWP,read_csv
+from vampires_calibration.csv_tools import arr_csv_HWP,read_csv, model_data
 import json
 from pyMuellerMat.physical_models.charis_physical_models import HWP_retardance,IMR_retardance,M3_retardance,M3_diattenuation
 import copy
@@ -370,6 +370,8 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
       van Holstein et al. 2020.
     fig : MatPlotLib figure object
     ax : MatPlotLib axis object
+    s_res : float
+      The polarimetric accuracy of the fit, calculated as the standard deviation of the residuals.
     """
     # Check file paths
     filepath = Path(csv_path)
@@ -403,21 +405,26 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
     imr_phi = IMR_retardance(wavelength_bins,259.12694)[wavelength_bin]
     hwp_phi = HWP_retardance(wavelength_bins,1.64601,1.28540)[wavelength_bin]
     epsilon_cal = 1
-    m3_diat = M3_diattenuation(wavelength_bins[wavelength_bin])
-    m3_ret = M3_retardance(wavelength_bins[wavelength_bin])
+    m1, b1, m2, b2 = (1.94073,13.69728,2.07958,13.88817) # from MCMC
+    df_elip = model_data('system_dictionaries/elliptical_imr')
+    imr_phi_h = df_elip['image_rotator_phi_h'][wavelength_bin]
+    imr_phi_45 = df_elip['image_rotator_phi_45'][wavelength_bin]
+    imr_phi_r = df_elip['image_rotator_phi_r'][wavelength_bin]
+    m3_diat = M3_diattenuation(wavelength_bins[wavelength_bin],m1,b1,m2,b2)
+    m3_ret = M3_retardance(wavelength_bins[wavelength_bin],m1,b1,m2,b2)
 
     # Define instrument configuration as system dictionary
     # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
     system_dict = {
         "components" : {
             "wollaston" : {
-            "type" : "wollaston_prism_function",
-            "properties" : {"beam": 'o'}, 
+            "type" : "CHARIS_wollaston_function",
+            "properties" : {"wavelength": wavelength_bins[wavelength_bin], "beam": 'o'}, 
             "tag": "internal",
             },
             "image_rotator" : {
-                "type" : "general_retarder_function",
-                "properties" : {"phi": imr_phi, "theta": imr_theta, "delta_theta": offset_imr},
+                "type" : "elliptical_IMR_function",
+                "properties" : {"wavelength": wavelength_bins[wavelength_bin], "theta": imr_theta, "delta_theta": offset_imr},
                 "tag": "internal",
             },
             "hwp" : {
@@ -431,8 +438,8 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
                 "tag":"internal",
             },
             "M3" : {
-                "type" : "diattenuator_retarder_function",
-                "properties" : {"phi": m3_ret, "epsilon" : m3_diat},
+                "type" : "general_diattenuator_retarder_function",
+                "properties" : {"d_h": m3_diat, "phi_h": m3_ret, "d_45": 0, "phi_45": 0, "d_r": 0, "phi_r": 0,"theta": 0, "delta_theta": 0},
                 "tag": "internal",
             },
             "parang_rot" : {
@@ -451,12 +458,12 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
         "M3" : 
-            {"epsilon":m3_diat}
+            {"d_h": m3_diat, "d_45": 0, "d_r": 0},
     }
 
     # Define some bounds
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS, ADD NEW BOUNDS OR CHANGE THEM
-
+    polbounds = (0,1)
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
  
@@ -473,8 +480,8 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
         if iteration > 1:
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
-        result, new_logl,error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-            interleaved_stds, configuration_list, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [(0,1)],mode='least_squares')
+        result, new_logl,error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, configuration_list,
+            interleaved_stds, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [polbounds,polbounds,polbounds],mode='least_squares')
         print(result)
 
         # Update p0 with new values
@@ -505,10 +512,10 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
 
     # Plot the modeled and observed values
     if plot_path:
-        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], include_sums=False,save_path=plot_path)
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, diffs_sums2,configuration_list, interleaved_stds_forlplotfunc, wavelength= wavelength_bins[wavelength_bin], include_sums=False,save_path=plot_path)
     else:
-        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin],include_sums=False)
-    
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, diffs_sums2,configuration_list, interleaved_stds_forlplotfunc, wavelength= wavelength_bins[wavelength_bin],include_sums=False)
+
     # Print the Mueller matrix
 
     print("Updated Mueller Matrix:")
@@ -518,13 +525,16 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
     print(len(interleaved_values), len(diffs_sums2))
     data_dd = process_dataset(interleaved_values)[::2]
     model_dd = diffs_sums2[::2]
-    residuals = data_dd - model_dd
+    residuals = data_dd*100 - model_dd*100
     print("Residuals range:", residuals.min(), residuals.max())
     print("Error:", error)
+    # calculate s_res
+    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-3))
+    print("s_res:", s_res)
 
     # Save system dictionary to a json file
 
     with open (new_config_dict_path, 'w') as f:
         json.dump(p0, f, indent=4)
     error = np.array(error)
-    return error, fig, ax
+    return error, fig, ax, s_res
