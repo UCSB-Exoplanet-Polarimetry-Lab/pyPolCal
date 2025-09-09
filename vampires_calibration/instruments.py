@@ -402,9 +402,9 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
 
     # Plot the modeled and observed values
     if plot_path:
-        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin], include_sums=False,save_path=plot_path)
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, diffs_sums2,configuration_list, interleaved_stds_forlplotfunc, wavelength= wavelength_bins[wavelength_bin], include_sums=False,save_path=plot_path)
     else:
-        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, interleaved_stds_forlplotfunc, diffs_sums2,configuration_list, wavelength= wavelength_bins[wavelength_bin],include_sums=False)
+        fig , ax = plot_data_and_model(interleaved_values_forplotfunc, diffs_sums2,configuration_list, interleaved_stds_forlplotfunc, wavelength= wavelength_bins[wavelength_bin],include_sums=False)
     
     # Print the Mueller matrix
 
