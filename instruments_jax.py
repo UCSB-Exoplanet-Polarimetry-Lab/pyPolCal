@@ -17,6 +17,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 from jax import jit
+# Note sure if this should be included
 jax.config.update("jax_enable_x64", True)
 
 #######################################################

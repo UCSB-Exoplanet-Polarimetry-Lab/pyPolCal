@@ -1,0 +1,26 @@
+{
+    "dichroic": {
+        "phi": 0.157995,
+        "epsilon": 0.004638674,
+        "theta": 0.059623
+    },
+    "flc": {
+        "phi": 3.193434,
+        "delta_theta": 1.213389
+    },
+    "optics": {
+        "phi": 1.339393,
+        "epsilon": 0.005200749,
+        "theta": 0.023200
+    },
+    "image_rotator": {
+        "phi": 2.567008
+    },
+    "hwp": {
+        "phi": 3.004646,
+        "delta_theta": 1.793607
+    },
+    "lp": {
+        "theta": 4.995543
+    }
+}

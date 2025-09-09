@@ -14,13 +14,13 @@ import mcmc_helper_funcs_jax as mcmc
 from functools import partial
 
 # Example file path and configuration
-filter_wavelength = 760
-wavelength_index = 3
+filter_wavelength = 720
+wavelength_index = 2
 nsteps = 1200000
 obs_mode = "MBI"
-txt_file_folder = "/home/rebeccaz/Github/vampires_calibration/scipy_minimize/data_files/produced/FLC_0_to_43_ten_percent_retardance_constraints_dichroic_theta_0_pm_10_optics_theta_0_pm_10_github_retrieved_non-reduced_errors/"
+txt_file_folder = "/home/rebeccaz/Github/vampires_calibration/mcmc/start_txt_files/FLC_0_43_dichroic_theta_0_pm_10_optics_theta_0_optics_retardance_025_fixing_flc_theta_a_and_b_no_jax_64_bit_start_retardances_in_radians/"
 csv_path = "/home/rebeccaz/Github/vampires_calibration/data/20230914_processed_table.csv"
-output_h5_file = "/home/rebeccaz/Github/vampires_calibration/mcmc/results/FLC_0_43_dichroic_theta_0_pm_10_optics_theta_0_optics_retardance_025_adding_flc_theta_a_and_b_to_read_csv/" + str(filter_wavelength) + "nm_" + str(nsteps) + "_steps.h5"
+output_h5_file = "/home/rebeccaz/Github/vampires_calibration/mcmc/results/FLC_0_43_dichroic_theta_0_pm_10_optics_theta_0_optics_retardance_025_fixing_flc_theta_a_and_b_fixed_start_to_radians/" + str(filter_wavelength) + "nm_" + str(nsteps) + "_steps.h5"
 
 IPOL_em_gains = [1.14, 1.18, 1.18, 1.18]
 MBI_em_gains = [1.23, 1.19, 1.2, 1.08]
@@ -31,7 +31,7 @@ elif obs_mode == "MBI":
 
 # Load dataset (replace with your file path)
 interleaved_values, interleaved_stds, configuration_list = \
-    inst.read_csv(csv_path, obs_mode=obs_mode, obs_filter=filter_wavelength, flc_theta_a=0, flc_theta_b=43)
+    inst.read_csv(csv_path, obs_mode=obs_mode, obs_filter=filter_wavelength, flc_theta_a = 0, flc_theta_b = 43)
 
 # Define ideal system configuration (this should reflect the setup of your optical train)
 system_dict = {
