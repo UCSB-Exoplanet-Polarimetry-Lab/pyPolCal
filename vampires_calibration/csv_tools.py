@@ -357,7 +357,8 @@ def read_csv(file_path, mode= 'standard'):
                 "image_rotator": {"theta": imr_theta, "wavelength": wavelength},
                 "altitude_rot": {"pa":a},
                 "M3": {"wavelength":wavelength},
-                "parang_rot": {"pa":p}
+                "parang_rot": {"pa":p},
+                "wollaston": {"wavelength":wavelength}
             }
         else:
             # Building dictionary

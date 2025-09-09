@@ -701,11 +701,13 @@ def summarize_median_posterior(h5_path, p0_dict, step_range=(0, None)):
         err_high = upper - median
         component = comp[0]
         key = comp[1]
-        summary[key] = {
+        if component not in summary:
+            summary[component] = {}
+        summary[component][key] = {
             "median": median,
             "-1sigma": err_low,
             "+1sigma": err_high
-        }
+}
         print(f"{component},{key}: {median:.5f} (+{err_high:.5f}/-{err_low:.5f})")
 
     return summary
