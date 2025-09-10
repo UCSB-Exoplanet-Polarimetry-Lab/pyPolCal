@@ -371,8 +371,6 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
         if iteration > 1:
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
-        for i in range(len(configuration_list)):
-            print(f"Index {i}, type: {type(configuration_list[i])}, value: {configuration_list[i]}")
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [dichroic_phi_bounds, dichroic_phi_bounds,dichroic_phi_bounds,offset_bounds,pol_bounds,pol_bounds,pol_bounds,pol_bounds,offset_bounds],mode='least_squares')
         print(result)
