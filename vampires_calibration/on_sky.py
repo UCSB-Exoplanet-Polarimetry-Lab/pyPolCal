@@ -140,20 +140,14 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
     phot_lbeam = aperture_photometry(image_data, aperture_l)
     phot_rbeam = aperture_photometry(image_data, aperture_r)
 
-    # optional bkgd subtraction
-    if annulus_l is not None and annulus_r is not None:
-        
-        bkgd_l = ApertureStats(image_data,annulus_l).mean
-        bkgd_r = ApertureStats(image_data, annulus_r).mean
-
     # get left and right counts
     left_counts = phot_lbeam['aperture_sum'][0]
     right_counts = phot_rbeam['aperture_sum'][0]
 
     # optional bkgd subtraction
     if (annulus_l is not None) and (annulus_r is not None) :
-        bkgd_l = ApertureStats(image_data,annulus_l).mean
-        bkgd_r = ApertureStats(image_data, annulus_r).mean
+        bkgd_l = ApertureStats(image_data,annulus_l).median
+        bkgd_r = ApertureStats(image_data, annulus_r).median
         left_counts -= bkgd_l*aperture_l.area
         right_counts -= bkgd_r*aperture_r.area
 
@@ -169,7 +163,7 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
     return (single_sum, single_diff, left_counts, right_counts, sum_std, diff_std)
 
 
-def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_path,centroid_guesses,aperture_radii, box_size,wavelength_bin,bkgd_annuli_radii=None,auto_annuli=False, plot_every_x=None):
+def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_path,centroid_guesses, box_size,wavelength_bin,aperture_radii=None,bkgd_annuli_radii=None,auto_annuli=False, plot_every_x=None, max_fwhm=None):
     """
     
     Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
@@ -202,15 +196,15 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
         [1] right centroid guess: list or np.1darray
             Initial guess for the centroid location of the right Wollaston beam PSF [x,y].
 
-    aperture_radii : list or np.1darry
-        Radii to use for the circular apertures. [L,R]
-
     box_size: int
         Length of the square box where the algorithm will search for
         the PSF center. 
 
     wavelength_bin : int
         Index of the wavelength bin to analyze (0-based).
+
+    aperture_radii : list or np.ndarray
+        Radii to use for the circular apertures. [L,R] If None, will be calculated as 3*FWHM of each PSF.
 
     hwp_order: list or np.ndarray, optional
         List of desired HWP order. Default works for double difference calculations.
@@ -232,6 +226,14 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
 
     plot_every_x: int, optional
         Plots apertures against image data every xth file processed.
+
+    max_fwhm: list, optional
+        [0] max fwhm left: float
+            Maximum FWHM in pixels to accept for the left PSF. If the fitted FWHM is larger than this,
+            an error will be raised.
+        [1] max fwhm right: float
+            Maximum FWHM in pixels to accept for the right PSF. If the fitted FWHM is larger than this,
+            an error will be raised.
 
     Returns
     --------
@@ -293,26 +295,31 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
                 centroids = charis_centroids_one_psf(image_data,centroid_guesses[0],centroid_guesses[1],box_size,wavelength_bin)
 
                 # create circular apertures
-                aper_l = CircularAperture(centroids[0],r=aperture_radii[0])
-                aper_r = CircularAperture(centroids[1], r=aperture_radii[1])
+                if aperture_radii is not None:
+                    aper_l = CircularAperture(centroids[0],r=aperture_radii[0])
+                    aper_r = CircularAperture(centroids[1], r=aperture_radii[1])
+                    if auto_annuli:
+                        bkgd_annuli_radii = ([aperture_radii[0],aperture_radii[0]+5],[aperture_radii[1],aperture_radii[1]+5])
 
                 if aperture_radii is None:
-                    if bkgd_annuli_radii is not None:
-                        print("No aperture radii provided so they will be automatic and you  \
-                        provided annuli radii. This is not recommended. You could end up \
-                        with annuli inside the apertures.")
                     fwhm_l = fit_fwhm(image_data,xypos=centroids[0],fit_shape=box_size)
                     fwhm_r = fit_fwhm(image_data,xypos=centroids[1],fit_shape=box_size)
-                    print(f"FWHM left: {fwhm_l}, FWHM right: {fwhm_r}")
-                    aper_l = CircularAperture(centroids[0],r=3*fwhm_l)
-                    aper_r = CircularAperture(centroids[1], r=3*fwhm_r)
+                    if fwhm_l > max_fwhm[0]:
+                        print(f"Fitted FWHM for left PSF of {fits_file.name} is {fwhm_l}, which is larger than the maximum allowed {max_fwhm[0]}. Max will be used")
+                        fwhm_l = max_fwhm[0]
+                    if fwhm_r > max_fwhm[1]:
+                        print(f"Fitted FWHM for right PSF of {fits_file.name} is {fwhm_r}, which is larger than the maximum allowed {max_fwhm[1]}. Max will be used")
+                        fwhm_r = max_fwhm[1]
+                    print(f"Fitted FWHM left: {fwhm_l}, Fitted FWHM right: {fwhm_r}")
+                    aper_l = CircularAperture(centroids[0],r=int(3*fwhm_l))
+                    aper_r = CircularAperture(centroids[1], r=int(3*fwhm_r))
                     if auto_annuli:
-                        bkgd_annuli_radii = ([3*fwhm_l,3*fwhm_l+5],[3*fwhm_r,3*fwhm_r+5])
+                        bkgd_annuli_radii = ([int(3*fwhm_l),int(3*fwhm_l+5)],[int(3*fwhm_r),int(3*fwhm_r+5)])
 
                 # calculate single sum and normalized single difference
-                if bkgd_annuli_radii or auto_annuli:
-                    bkgd_annulus_l = CircularAnnulus(centroids[0],bkgd_annuli_radii[0][0],bkgd_annuli_radii[0][1])
-                    bkgd_annulus_r = CircularAnnulus(centroids[1],bkgd_annuli_radii[1][0],bkgd_annuli_radii[1][1])
+                if bkgd_annuli_radii or auto_annuli: 
+                    bkgd_annulus_l = CircularAnnulus(centroids[0],int(bkgd_annuli_radii[0][0]),int(bkgd_annuli_radii[0][1]))
+                    bkgd_annulus_r = CircularAnnulus(centroids[1],int(bkgd_annuli_radii[1][0]),int(bkgd_annuli_radii[1][1]))
                     single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff_psf(fits_file,wavelength_bin,aper_l,aper_r,bkgd_annulus_l,bkgd_annulus_r)
                 else:
                     single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff_psf(fits_file,wavelength_bin,aper_l,aper_r)
