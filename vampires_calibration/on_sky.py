@@ -4,6 +4,7 @@ import pandas as pd
 from astropy.io import fits
 from photutils.aperture import CircularAperture,CircularAnnulus
 from photutils.aperture import aperture_photometry
+from photutils.psf import fit_fwhm
 from astropy.visualization import simple_norm
 from pathlib import Path
 import re
@@ -168,7 +169,7 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
     return (single_sum, single_diff, left_counts, right_counts, sum_std, diff_std)
 
 
-def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_path,centroid_guesses,aperture_radii, box_size,wavelength_bin,bkgd_annuli_radii=None,plot_every_x=None):
+def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_path,centroid_guesses,aperture_radii, box_size,wavelength_bin,bkgd_annuli_radii=None,auto_annuli=False, plot_every_x=None):
     """
     
     Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
@@ -225,6 +226,9 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
         [1] right radii: list or np.1darray
         Inside and outside radii length in pixels for the local background subtraction
         annulus of the right Wollaston aperture [inside,outside].
+
+    auto_annuli: bool, optional
+        If True, will automatically add annuli 5 pixels larger than the aperture radii.
 
     plot_every_x: int, optional
         Plots apertures against image data every xth file processed.
@@ -287,13 +291,26 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
                 
                 # find centroids of psfs
                 centroids = charis_centroids_one_psf(image_data,centroid_guesses[0],centroid_guesses[1],box_size,wavelength_bin)
-                
+
                 # create circular apertures
                 aper_l = CircularAperture(centroids[0],r=aperture_radii[0])
                 aper_r = CircularAperture(centroids[1], r=aperture_radii[1])
 
+                if aperture_radii is None:
+                    if bkgd_annuli_radii is not None:
+                        print("No aperture radii provided so they will be automatic and you  \
+                        provided annuli radii. This is not recommended. You could end up \
+                        with annuli inside the apertures.")
+                    fwhm_l = fit_fwhm(image_data,xypos=centroids[0],fit_shape=box_size)
+                    fwhm_r = fit_fwhm(image_data,xypos=centroids[1],fit_shape=box_size)
+                    print(f"FWHM left: {fwhm_l}, FWHM right: {fwhm_r}")
+                    aper_l = CircularAperture(centroids[0],r=3*fwhm_l)
+                    aper_r = CircularAperture(centroids[1], r=3*fwhm_r)
+                    if auto_annuli:
+                        bkgd_annuli_radii = ([3*fwhm_l,3*fwhm_l+5],[3*fwhm_r,3*fwhm_r+5])
+
                 # calculate single sum and normalized single difference
-                if bkgd_annuli_radii:
+                if bkgd_annuli_radii or auto_annuli:
                     bkgd_annulus_l = CircularAnnulus(centroids[0],bkgd_annuli_radii[0][0],bkgd_annuli_radii[0][1])
                     bkgd_annulus_r = CircularAnnulus(centroids[1],bkgd_annuli_radii[1][0],bkgd_annuli_radii[1][1])
                     single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff_psf(fits_file,wavelength_bin,aper_l,aper_r,bkgd_annulus_l,bkgd_annulus_r)
@@ -313,7 +330,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
                         im = ax.imshow(image_data, origin='lower', cmap='inferno',norm=snorm)
                         aper_l.plot(ax,color='white')
                         aper_r.plot(ax,color='white')
-                        if bkgd_annuli_radii:
+                        if bkgd_annuli_radii or auto_annuli:
                             CircularAnnulus(centroids[0],bkgd_annuli_radii[0][0],bkgd_annuli_radii[0][1]).plot(ax,color='white',alpha=0.5)
                             CircularAnnulus(centroids[1],bkgd_annuli_radii[1][0],bkgd_annuli_radii[1][1]).plot(ax,color='white',alpha=0.5)
                         fig.colorbar(im,ax=ax)
