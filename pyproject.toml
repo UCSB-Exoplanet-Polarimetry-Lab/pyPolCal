@@ -11,12 +11,12 @@ authors = [
     {name = "Thomas McIntosh", email = "thomasmcintosh@ucsb.edu"},
     {name = "Rebecca Zhang", email = "manxuanzhang@ucsb.edu"}
 ]
-requires-python = ">=3.7,<3.10"
+requires-python = ">=3.11"
 
 # Runtime dependencies
 dependencies = [
-    "numpy==1.26.4",
-    "astropy==6.0.1",
+    "numpy",
+    "astropy",
     "scipy",
     "matplotlib",
     "pyMuellerMat @ git+https://github.com/maxwellmb/pyMuellerMat@physical_models",
