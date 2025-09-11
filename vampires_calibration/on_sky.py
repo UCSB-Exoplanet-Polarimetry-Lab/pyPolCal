@@ -19,13 +19,13 @@ from vampires_calibration.csv_tools import arr_csv_HWP,read_csv, model_data
 import json
 from pyMuellerMat.physical_models.charis_physical_models import HWP_retardance,IMR_retardance,M3_retardance,M3_diattenuation
 import copy
-
+import matplotlib.patches as mpatches
 
 def charis_centroids_one_psf(image_data,initial_guess_l,initial_guess_r,box_size,wavelength_bin):
     """
     Fits centroids for CHARIS specpol mode using center of mass fit, assuming only one PSF per Wollaston beam.
     Fits all wavelength bins using an initial guess. Uses photutils centroid_sources()
-    with centroid function centroid_com().
+    with centroid function centroid_com(). 
 
     Parameters
     -----------
@@ -73,7 +73,8 @@ def charis_centroids_one_psf(image_data,initial_guess_l,initial_guess_r,box_size
 def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_r,annulus_l=None,annulus_r=None):
     """Calculate single difference and sum between left and right beam 
     rectangular aperture photometry from a single psf. Add L/R counts and stds to array.
-    
+    Masks all pixels above 40,000 counts to correct
+    for detector nonlinearity.
     Parameters
     -----------
     fits_cube_path : str or Path
@@ -135,10 +136,10 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
         raise ValueError(f"wavelength_bin must be between 0 and {cube_data.shape[0] - 1}.")
     
     image_data = cube_data[wavelength_bin]
-
+    mask = image_data > 40000
     # define apertures perform aperture photometry 
-    phot_lbeam = aperture_photometry(image_data, aperture_l)
-    phot_rbeam = aperture_photometry(image_data, aperture_r)
+    phot_lbeam = aperture_photometry(image_data, aperture_l,mask=mask)
+    phot_rbeam = aperture_photometry(image_data, aperture_r,mask=mask)
 
     # get left and right counts
     left_counts = phot_lbeam['aperture_sum'][0]
@@ -146,8 +147,8 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
 
     # optional bkgd subtraction
     if (annulus_l is not None) and (annulus_r is not None) :
-        bkgd_l = ApertureStats(image_data,annulus_l).median
-        bkgd_r = ApertureStats(image_data, annulus_r).median
+        bkgd_l = ApertureStats(image_data,annulus_l).mean
+        bkgd_r = ApertureStats(image_data, annulus_r).mean
         left_counts -= bkgd_l*aperture_l.area
         right_counts -= bkgd_r*aperture_r.area
 
@@ -169,7 +170,8 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
     Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
     single sum, single difference, LCOUNTS, RCOUNTS, difference std,
     sum std, and wavelength values for a wavelength bin from each fits cube in the directory.
-    Default HWP order and deletion works for future double difference calculation. 
+    Default HWP order and deletion works for future double difference calculation. Masks all pixels above 40,000 counts to correct
+    for detector nonlinearity.
 
     FITS parameters are extracted from raw files, while single sum and difference are calculated using the
     fits cube data and the defined rectangular apertures.
@@ -305,10 +307,10 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
                     fwhm_l = fit_fwhm(image_data,xypos=centroids[0],fit_shape=box_size)
                     fwhm_r = fit_fwhm(image_data,xypos=centroids[1],fit_shape=box_size)
                     if fwhm_l > max_fwhm[0]:
-                        print(f"Fitted FWHM for left PSF of {fits_file.name} is {fwhm_l}, which is larger than the maximum allowed {max_fwhm[0]}. Max will be used")
+                        print(f"Fitted FWHM for left PSF of {fits_id} is {fwhm_l}, which is larger than the maximum allowed {max_fwhm[0]}. Max will be used")
                         fwhm_l = max_fwhm[0]
                     if fwhm_r > max_fwhm[1]:
-                        print(f"Fitted FWHM for right PSF of {fits_file.name} is {fwhm_r}, which is larger than the maximum allowed {max_fwhm[1]}. Max will be used")
+                        print(f"Fitted FWHM for right PSF of {fits_id} is {fwhm_r}, which is larger than the maximum allowed {max_fwhm[1]}. Max will be used")
                         fwhm_r = max_fwhm[1]
                     print(f"Fitted FWHM left: {fwhm_l}, Fitted FWHM right: {fwhm_r}")
                     aper_l = CircularAperture(centroids[0],r=int(3*fwhm_l))
@@ -335,13 +337,17 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
                         fig, ax = plt.subplots(figsize=(10,6))
                         snorm = simple_norm(image_data,'log',)
                         im = ax.imshow(image_data, origin='lower', cmap='inferno',norm=snorm)
+                        mask = image_data > 40000
                         aper_l.plot(ax,color='white')
                         aper_r.plot(ax,color='white')
+                        ax.set_title(f"{fits_id} Wavelength bin: {wavelength_bins[wavelength_bin]} nm")
                         if bkgd_annuli_radii or auto_annuli:
                             CircularAnnulus(centroids[0],bkgd_annuli_radii[0][0],bkgd_annuli_radii[0][1]).plot(ax,color='white',alpha=0.5)
                             CircularAnnulus(centroids[1],bkgd_annuli_radii[1][0],bkgd_annuli_radii[1][1]).plot(ax,color='white',alpha=0.5)
                         fig.colorbar(im,ax=ax)
-                    
+                        ax.imshow(mask, origin='lower', cmap='gray', alpha=0.5, vmin=0, vmax=1)
+                        mask_patch = mpatches.Patch(color='gray', label='Masked Pixels > 40000 counts')
+                        ax.legend(handles=[mask_patch])
 
             except Exception as e:
                 print(f"Error processing {fits_file}: {e}")
