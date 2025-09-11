@@ -253,7 +253,7 @@ def run_mcmc(
     log_f0 : float, optional
         Initial value for `log_f` if `include_log_f` is True.
     plot : bool, optional
-        If True, plots every 100 steps
+        If True, plots every 100 steps. Only works in .py scripts currently.
     include_sums : bool
         Whether or not to take out double sums from modeling. The default is true
         because this works for VAMPIRES. It does not work for CHARIS.
