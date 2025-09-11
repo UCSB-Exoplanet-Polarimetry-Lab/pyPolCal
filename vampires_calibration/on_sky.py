@@ -456,6 +456,11 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
                 "properties" : {"wavelength": wavelength_bins[wavelength_bin], "theta": imr_theta, "delta_theta": offset_imr},
                 "tag": "internal",
             },
+            "optics2" : {
+                "type" : "diattenuator_retarder_function",
+                "properties" : {"epsilon": 0, "delta_theta": 0},
+                "tag": "internal",
+            },
             "hwp" : {
                 "type" : "general_retarder_function",
                 "properties" : {"phi": hwp_phi, "theta": hwp_theta, "delta_theta": offset_hwp},
@@ -468,7 +473,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
             },
             "M3" : {
                 "type" : "diattenuator_retarder_function",
-                "properties" : {"epsilon": m3_diat, "theta": 0, "delta_theta":0},
+                "properties" : {"epsilon": m3_diat, "phi": m3_ret, "theta": 0, "delta_theta":0},
                 "tag": "internal",
             },
 
@@ -487,9 +492,9 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-        "M3": {
-            "epsilon": m3_diat, "delta_theta": 0
-        }
+        "optics2": {
+            "epsilon": 0, "delta_theta": 0
+        },
     }
     # Define some bounds
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS, ADD NEW BOUNDS OR CHANGE THEM
@@ -511,7 +516,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl,error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, configuration_list,
-            interleaved_stds, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [(-1,1),(-15,15)],mode='least_squares')
+            interleaved_stds, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [(-1,1),(-180,180)],mode='least_squares')
         print(result)
 
         # Update p0 with new values
