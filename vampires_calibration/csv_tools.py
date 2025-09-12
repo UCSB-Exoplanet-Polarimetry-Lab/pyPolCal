@@ -337,7 +337,8 @@ def read_csv(file_path, mode= 'standard'):
             # Building dictionary with wavelength
             row_data = {
                 "hwp": {"theta": hwp_theta, "wavelength": wavelength},
-                "image_rotator": {"theta": imr_theta, "wavelength": wavelength}
+                "image_rotator": {"theta": imr_theta, "wavelength": wavelength},
+                "wollaston": {"wavelength":wavelength}
             }
         elif mode == 'm3':
             a = row['a']
