@@ -147,8 +147,8 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
 
     # optional bkgd subtraction
     if (annulus_l is not None) and (annulus_r is not None) :
-        bkgd_l = ApertureStats(image_data,annulus_l).mean
-        bkgd_r = ApertureStats(image_data, annulus_r).mean
+        bkgd_l = ApertureStats(image_data,annulus_l).median
+        bkgd_r = ApertureStats(image_data, annulus_r).median
         left_counts -= bkgd_l*aperture_l.area
         right_counts -= bkgd_r*aperture_r.area
 
@@ -345,7 +345,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
                             CircularAnnulus(centroids[0],bkgd_annuli_radii[0][0],bkgd_annuli_radii[0][1]).plot(ax,color='white',alpha=0.5)
                             CircularAnnulus(centroids[1],bkgd_annuli_radii[1][0],bkgd_annuli_radii[1][1]).plot(ax,color='white',alpha=0.5)
                         fig.colorbar(im,ax=ax)
-                        ax.imshow(mask, origin='lower', cmap='gray', alpha=0.5, vmin=0, vmax=1)
+                        ax.imshow(mask, origin='lower', cmap='gray', alpha=0.2, vmin=0, vmax=1)
                         mask_patch = mpatches.Patch(color='gray', label='Masked Pixels > 40000 counts')
                         ax.legend(handles=[mask_patch])
 
