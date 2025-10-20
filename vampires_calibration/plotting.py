@@ -899,8 +899,8 @@ def plot_polarimetric_efficiency(json_dir, bins, save_path=None, title=None):
               #  "tag": "internal",
               #  },
                 "image_rotator" : {
-                    "type" : "general_retarder_function",
-                    "properties" : {"phi": 0, "theta": derotator_angle, "delta_theta": 0},
+                    "type" : "elliptical_retarder_function",
+                    "properties" : {"phi_h": 0,"phi_45": 0, "phi_r": 0, "theta": derotator_angle, "delta_theta": 0},
                     "tag": "internal",
                 },
                 "hwp" : {
