@@ -910,7 +910,7 @@ def plot_polarimetric_efficiency(json_dir, bins, save_path=None, title=None):
                 },
                 "lp" : {
                     "type": "general_linear_polarizer_function_with_theta",
-                    "properties": {"delta_theta": 0},
+                    "properties": {"epsilon":1, "delta_theta": 0},
                     "tag": "internal",
                 }}
             }
