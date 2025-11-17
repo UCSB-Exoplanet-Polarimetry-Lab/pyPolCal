@@ -285,13 +285,13 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
     #configuration_list = configuration_list 
 
     # Loading in past fits 
-    offset_imr = -0.13959# derotator offset
-    offset_hwp = -1.59338# HWP offset
-    offset_cal = -0.11835 # calibration polarizer offset
+    offset_imr = -0.3992# derotator offset
+    offset_hwp = -1.425# HWP offset
+    offset_cal = -0.3157 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins,259.11814)[wavelength_bin]
-    hwp_phi = HWP_retardance(wavelength_bins,1.63398,1.27711)[wavelength_bin]
+    hwp_phi = HWP_retardance(wavelength_bins,1.613,1.261)[wavelength_bin]
     epsilon_cal = 1
     m3_phi = M3_retardance(wavelength_bins[wavelength_bin])
     m3_epsilon = M3_diattenuation(wavelength_bins[wavelength_bin])
@@ -325,7 +325,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
 
             "image_rotator" : {
             "type" : "elliptical_retarder_function",
-            "properties" : {"phi_45":0,"phi_h": imr_phi_h, "phi_r": 0, "theta": imr_theta, "delta_theta": offset_imr},
+            "properties" : {"phi_45":0,"phi_h": imr_phi, "phi_r": 0, "theta": imr_theta, "delta_theta": offset_imr},
             "tag": "internal",
             },
             
@@ -351,8 +351,8 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-            "hwp": {"phi":hwp_phi, "delta_theta":offset_hwp},
-        "image_rotator": {"phi_h":imr_phi_h, "delta_theta":offset_imr},
+        'image_rotator': {'phi_45': imr_phi_45, 'phi_r': imr_phi_r, 'phi_h': imr_phi_h},
+        'wollaston': {'eta': wol_eta}
     }
 
     # Define some bounds
@@ -388,7 +388,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [ret_bounds,offset_bounds,ret_bounds,offset_bounds],mode='least_squares')
+             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [ret_bounds,ret_bounds,ret_bounds,(0,1)],mode='least_squares')
         print(result)
 
         # Update p0 with new values
@@ -517,11 +517,11 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins,259.11814)[wavelength_bin]
-    hwp_phi = HWP_retardance(wavelength_bins,1.63398,1.27711)[wavelength_bin]
+    hwp_phi = HWP_retardance(wavelength_bins,1.613,1.261)[wavelength_bin]
     epsilon_cal = 0
     m3_phi = M3_retardance(wavelength_bins[wavelength_bin])
     m3_epsilon = M3_diattenuation(wavelength_bins[wavelength_bin])
-    df_ellip = model_data('../system_dictionaries/elliptical_imr')
+    df_ellip = model_data('../system_dictionaries/new_elliptical_imr_w_nbs')
     imr_phi_45 = df_ellip['image_rotator_phi_45'].values[wavelength_bin]
     imr_phi_r = df_ellip['image_rotator_phi_r'].values[wavelength_bin]
     imr_phi_h = df_ellip['image_rotator_phi_h'].values[wavelength_bin]
@@ -541,7 +541,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
             },
             "diattenuation" : {
             "type" : "general_diattenuator_function",
-            "properties" : {"d_h": 0, "d_45":0,"d_r":0},
+            "properties" : {"d_h": 0},
             "tag": "internal",
             },
 
@@ -585,8 +585,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-        "lp": {"epsilon":0.01,"delta_theta":0},
-
+        "diattenuation": {"d_h":0,"delta_theta":0},
     }
 
     # Define some bounds
