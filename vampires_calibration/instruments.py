@@ -325,7 +325,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
 
             "image_rotator" : {
             "type" : "elliptical_retarder_function",
-            "properties" : {"phi_45":0,"phi_h": imr_phi, "phi_r": 0, "theta": imr_theta, "delta_theta": offset_imr},
+            "properties" : {"phi_45":0,"phi_h": imr_phi, "phi_r": 0, "theta": imr_theta, "delta_theta":offset_imr},
             "tag": "internal",
             },
             
@@ -347,11 +347,11 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
     # Converting system dictionary into system Mueller Matrix object
     system_mm = generate_system_mueller_matrix(system_dict)
 
-    # Define initial guesses for our parameters 
+    # Define initial guesses for our parameters a
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-        'image_rotator': {'phi_45': imr_phi_45, 'phi_r': imr_phi_r, 'phi_h': imr_phi_h},
+        'image_rotator': {'phi_h': imr_phi},
         'wollaston': {'eta': wol_eta}
     }
 
@@ -388,7 +388,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [ret_bounds,ret_bounds,ret_bounds,(0,1)],mode='least_squares')
+             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [ret_bounds,(0,1)],mode='least_squares')
         print(result)
 
         # Update p0 with new values
