@@ -3,10 +3,10 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vampires_calibration"
+name = "pyPolCal"
 readme = "README.md"
 version = "0.1.0"
-description = "Polarimetric calibration package for SCExAO CHARIS and VAMPIRES"
+description = "Polarimetric calibration package"
 authors = [
     {name = "Thomas McIntosh", email = "thomasmcintosh@ucsb.edu"},
     {name = "Rebecca Zhang", email = "manxuanzhang@ucsb.edu"}
