@@ -55,14 +55,4 @@ pyPolCal/
    │── utils.py     # Helper functions
    │── CHARIS/      # Tutorial notebooks for CHARIS fitting and source code for McIntosh+ 2025 SPIE polcal proceeding
    │── VAMPIRES/    # Source code for Zhang+ 2024 SPIE polcal proceeding
-   
-
-  
-
-
-  
-    
-
-│── pyproject.toml    # Installation file
-│── README.md
 ```
