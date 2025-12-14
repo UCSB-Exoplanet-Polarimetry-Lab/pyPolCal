@@ -38,3 +38,31 @@ pip install -e .
 ```
 
 ---
+
+## Repository Structure
+
+```
+pyPolCal/
+│── pyPolCal/       # Package root for pyPolCal
+   │── constants.py   # Hard coded constants
+   │── csv_tools.py   # Tools for writing and reading CSV files with FITS info
+   │── fitting.py     # Tools for fitting the Mueller matrix model
+   │── instruments.py     # Wrapper functions for minimize_system_mueller_matrix to fit with one function
+   │── instruments_jax.py     # Jax-compatible functions for MCMC
+   │── mcmc_helper_funcs_jax.py     # More MCMC helpers
+   │── on_sky.py     # CSV/fitting tools for unpolarized or polarized standard star calibration
+   │── plotting.py     # Plotting functions
+   │── utils.py     # Helper functions
+   │── CHARIS/      # Tutorial notebooks for CHARIS fitting and source code for McIntosh+ 2025 SPIE polcal proceeding
+   │── VAMPIRES/    # Source code for Zhang+ 2024 SPIE polcal proceeding
+   
+
+  
+
+
+  
+    
+
+│── pyproject.toml    # Installation file
+│── README.md
+```
