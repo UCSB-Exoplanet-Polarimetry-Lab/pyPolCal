@@ -1,5 +1,5 @@
 # pyPolCal
-
+![link](pyPolCal/logo.png)
 This Python library provides tools for fitting and visualizing Mueller matrix models for **SCExAO VAMPIRES** and the **SCExAO CHARIS spectropolarimetric mode**. In the future it will be updated for compatibility with other instruments.
 
 You can fit either:
