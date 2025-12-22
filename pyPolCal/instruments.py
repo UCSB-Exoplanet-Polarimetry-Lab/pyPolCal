@@ -561,7 +561,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
 
             "lp" :{
                 "type" : "diattenuator_retarder_function",
-                "properties" : {"epsilon": epsilon_cal, "delta_theta": offset_cal},
+                "properties" : {"epsilon": epsilon_cal, "delta_theta": offset_cal,"theta":90},
                 "tag": "internal",
             },
 }
