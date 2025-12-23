@@ -374,6 +374,50 @@ def plot_data_and_model_alt(interleaved_values, model,
     hwp_theta_filter=None, wavelength=None, save_path=None,
     include_sums=True, title=None):
 
+    """
+    Plots double difference and double sum measurements alongside model predictions,
+    grouped by altitude angle. Optionally filters by a specific 
+    image rotator angle and displays a wavelength in the plot title.
+
+    Parameters
+    ----------
+    interleaved_values : np.ndarray
+        Interleaved array of observed single difference and single sum values.
+        Expected format: [sd1, ss1, sd2, ss2, ...]. 
+
+
+    model : np.ndarray
+        Interleaved array of model-predicted double difference and double sum values.
+        If charis use single differences and sums. 
+
+    configuration_list : list of dict
+        List of system configurations (one for each measurement), where each dictionary 
+        contains component settings like HWP and image rotator angles.
+
+    interleaved_stds : np.ndarray
+        Interleaved array of standard deviations corresponding to the observed values.
+
+    imr_theta_filter : float, optional
+        If provided, only measurements with this image rotator angle (rounded to 0.1°) 
+        will be plotted.
+
+    wavelength : str or int, optional
+        Wavelength (e.g., 670 or "670") to display as a centered title with "nm" units 
+        (e.g., "670nm").
+
+    include_sums : bool, optional
+        Default is True, plotting the double sums as well as the differences. If false, only the
+        double differences are plotted, a residual bar is included, and some other plotting things are updated.
+
+    title : str, optional
+        Default is the wavelength.
+
+    Returns
+    -------
+    fig, ax : matplotlib Figure and Axes
+        A tuple containing the Figure and Axes objects of the plot.
+    """
+    
     if interleaved_stds is None:
         interleaved_stds = np.zeros_like(interleaved_values)
 
@@ -624,7 +668,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
         "M3": {
-            "d_h": m3_diat, "d_45": 0
+            "d_h": m3_diat, "d_45": 0.01,
         },
 
     }
