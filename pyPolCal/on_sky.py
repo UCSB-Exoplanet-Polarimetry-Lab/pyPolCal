@@ -627,13 +627,8 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
                 "tag": "internal",
             },
             "hwp" : {
-                "type" : "general_retarder_function",
-                "properties" : {"phi": hwp_phi, "theta": hwp_theta, "delta_theta": offset_hwp},
-                "tag": "internal",
-            },
-            "diat" : {
-                "type" : "diattenuator_retarder_function",
-                "properties" : {"epsilon": 0, "delta_theta": 0},
+                "type" : "two_layer_HWP_function",
+                "properties" : {"wavelength": wavelength_bins[wavelength_bin], "w_SiO2": 1.636, "w_MgF2": 1.278, "theta": hwp_theta, "delta_theta": offset_hwp},
                 "tag": "internal",
             },
             "altitude_rot" : {
@@ -643,7 +638,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
             },
             "M3" : {
                 "type" : "general_diattenuator_function",
-                "properties" : {"d_h": m3_diat,"d_45":0, "d_r":0, "theta": 0, "delta_theta":0},
+                "properties" : {"d_h": m3_diat,"d_45":0,"theta": 0, "delta_theta":0},
                 "tag": "internal",
             },
 
@@ -652,11 +647,6 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
                 "properties" : {"pa":0},
                 "tag":"internal",
             },
-            "diat" : {
-                "type" : "diattenuator_retarder_function",
-                "properties" : {"epsilon": 0, "delta_theta": 0},
-                "tag": "internal",
-            }
     }
     }
 
@@ -740,7 +730,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
     print("Residuals range:", residuals.min(), residuals.max())
     print("Error:", error)
     # calculate s_res
-    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-3))
+    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-len(p0_values)))
     print("s_res:", s_res)
 
     # Save system dictionary to a json file

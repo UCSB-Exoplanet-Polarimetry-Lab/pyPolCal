@@ -208,7 +208,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     model_dd = diffs_sums2[::2]
     residuals = data_dd*100 - model_dd*100
     # calculate s_res as in appendix E of SPHERE cal paper
-    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-8))
+    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-len(p0_values)))
     print("Residuals range:", residuals.min(), residuals.max())
     print("s_res:", s_res)
     print("Error:", error)
@@ -434,7 +434,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
     model_dd = diffs_sums2[::2]
     residuals = data_dd*100 - model_dd*100
     # calculate s_res as in appendix E of SPHERE cal paper
-    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-8))
+    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-len(p0_values)))
     print("Residuals range:", residuals.min(), residuals.max())
     print("s_res:", s_res)
     print("Error:", error)
@@ -656,7 +656,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
     model_dd = diffs_sums2[::2]
     residuals = data_dd*100 - model_dd*100
     # calculate s_res as in appendix E of SPHERE cal paper
-    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-8))
+    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-len(p0_values)))
     print("Residuals range:", residuals.min(), residuals.max())
     print("s_res:", s_res)
     print("Error:", error)
@@ -867,7 +867,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
     data_dd = process_dataset(interleaved_values)[::2]
     model_dd = diffs_sums2[::2]
     residuals = data_dd*100 - model_dd*100
-    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-3))
+    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-len(p0_values)))
     print("s_res:", s_res)
     print("Residuals range:", residuals.min(), residuals.max())
     print("Error:", error)
