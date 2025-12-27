@@ -124,7 +124,6 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-            "hwp": {"phi":hwp_phi},
           "image_rotator": {"phi_h":imr_phi, "phi_r":0, "phi_45":0},
           "wollaston": {"eta": 1}
          }
@@ -162,7 +161,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [ret_bounds, ret_bounds,ret_bounds,ret_bounds,(0,1)],mode='least_squares')
+             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [ret_bounds,ret_bounds,ret_bounds,(0,1)],mode='least_squares')
         print(result)
 
         # Update p0 with new values
@@ -285,17 +284,17 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
     #configuration_list = configuration_list 
 
     # Loading in past fits 
-    offset_imr = -0.4506# derotator offset
-    offset_hwp = -1.119# HWP offset
-    offset_cal = -0.5905 # calibration polarizer offset
+    offset_imr = 0.00637# derotator offset
+    offset_hwp = -0.03303# HWP offset
+    offset_cal = -0.01506 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins,259.11814)[wavelength_bin]
-    hwp_phi = HWP_retardance(wavelength_bins,1.636,1.278)[wavelength_bin]
+    hwp_phi = HWP_retardance(wavelength_bins,1.638,1.28)[wavelength_bin]
     epsilon_cal = 1
     m3_phi = M3_retardance(wavelength_bins[wavelength_bin])
     m3_epsilon = M3_diattenuation(wavelength_bins[wavelength_bin])
-    df_ellip = model_data('../system_dictionaries/elliptical_imr')
+    df_ellip = model_data('../system_dictionaries/nbs_in_internalcal')
     imr_phi_45 = df_ellip['image_rotator_phi_45'].values[wavelength_bin]
     imr_phi_r = df_ellip['image_rotator_phi_r'].values[wavelength_bin]
     imr_phi_h = df_ellip['image_rotator_phi_h'].values[wavelength_bin]
@@ -318,27 +317,22 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
                 "properties": {"pa": 90},
                 "tag": "internal",
             },
-            "optics" : {
-            "type" : "general_retarder_function",
-            "properties" : {"phi": 0, "theta": 0, "delta_theta": 0}
-            },
-
             "image_rotator" : {
             "type" : "elliptical_retarder_function",
-            "properties" : {"phi_45":0,"phi_h": imr_phi, "phi_r": 0, "theta": imr_theta, "delta_theta":offset_imr},
+            "properties" : {"theta": imr_theta, "delta_theta":offset_imr},
             "tag": "internal",
             },
             
             "hwp" : {
-                "type" : "general_retarder_function",
-                "properties" : {"phi": hwp_phi, "theta": hwp_theta, "delta_theta": offset_hwp},
+                "type" : "diattenuator_retarder_function",
+                "properties" : {"theta": hwp_theta, "delta_theta": offset_hwp},
                 "tag": "internal",
             },
 
 
             "lp" :{
                 "type" : "diattenuator_retarder_function",
-                "properties" : {"epsilon": epsilon_cal, "delta_theta": offset_cal},
+                "properties" : {"epsilon": epsilon_cal, "delta_theta":offset_cal},
                 "tag": "internal",
             },
 }
@@ -351,8 +345,9 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
 
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
-        'image_rotator': {'phi_h': imr_phi_h,'phi_r':0,'phi_45':0},
-        'wollaston': {'eta': wol_eta}
+            "image_rotator": {"phi_h":imr_phi, "phi_r":imr_phi_r, "phi_45":imr_phi_45},
+            'hwp': {"phi":hwp_phi},
+            'wollaston': {'eta': wol_eta}
     }
 
     # Define some bounds
@@ -388,7 +383,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl, error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, 
-             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [ret_bounds,ret_bounds,ret_bounds,(0,1)],mode='least_squares')
+             configuration_list, process_dataset=process_dataset,process_model=process_model,include_sums=False, bounds = [ret_bounds,ret_bounds,ret_bounds,ret_bounds,(0,1)],mode='least_squares')
         print(result)
 
         # Update p0 with new values
@@ -534,9 +529,9 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
             "properties" : {"wavelength": wavelength_bins[wavelength_bin], "beam": 'o'}, 
             "tag": "internal",
             },
-            "image_rotator_diattenuation" : {
-                "type" : "diattenuator_retarder_function",
-                "properties" : {"epsilon": m3_epsilon, "theta": angle_diat},
+                        "nbs_rot": {
+                "type": "rotator_function",
+                "properties": {"pa": 90},
                 "tag": "internal",
             },
             "image_rotator" : {
@@ -545,12 +540,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
                 "tag": "internal",
             },
 
-            "nbs_rot":
-            {
-            "type": "rotator_function",
-            "properties": {"pa":90},
-            "tag": "internal",
-            },
+
 
             "hwp" : {
                 "type" : "general_retarder_function",

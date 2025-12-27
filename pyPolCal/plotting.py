@@ -41,7 +41,7 @@ def plot_data_and_model(interleaved_values, model,
 
     model : np.ndarray
         Interleaved array of model-predicted double difference and double sum values.
-        If charis use single differences and sums. 
+    
 
     configuration_list : list of dict
         List of system configurations (one for each measurement), where each dictionary 
@@ -77,7 +77,6 @@ def plot_data_and_model(interleaved_values, model,
     dd_stds = interleaved_stds[::2]
     ds_stds = interleaved_stds[1::2]
     interleaved_values = process_dataset(interleaved_values)
-    
 
     # Extract double differences and double sums
     dd_values = interleaved_values[::2]
@@ -424,6 +423,172 @@ def plot_data_and_model_x_imr(interleaved_values, model,
 
 
     return fig, ax,small_ax
+
+def plot_data_and_model_alt(interleaved_values, model, 
+    configuration_list, interleaved_stds=None,
+    hwp_theta_filter=None, wavelength=None, save_path=None,
+    include_sums=True, title=None):
+
+    """
+    Plots double difference and double sum measurements alongside model predictions,
+    grouped by altitude angle. Optionally filters by a specific 
+    image rotator angle and displays a wavelength in the plot title.
+
+    Parameters
+    ----------
+    interleaved_values : np.ndarray
+        Interleaved array of observed single difference and single sum values.
+        Expected format: [sd1, ss1, sd2, ss2, ...]. 
+
+
+    model : np.ndarray
+        Interleaved array of model-predicted double difference and double sum values.
+        If charis use single differences and sums. 
+
+    configuration_list : list of dict
+        List of system configurations (one for each measurement), where each dictionary 
+        contains component settings like HWP and image rotator angles.
+
+    interleaved_stds : np.ndarray
+        Interleaved array of standard deviations corresponding to the observed values.
+
+    imr_theta_filter : float, optional
+        If provided, only measurements with this image rotator angle (rounded to 0.1°) 
+        will be plotted.
+
+    wavelength : str or int, optional
+        Wavelength (e.g., 670 or "670") to display as a centered title with "nm" units 
+        (e.g., "670nm").
+
+    include_sums : bool, optional
+        Default is True, plotting the double sums as well as the differences. If false, only the
+        double differences are plotted, a residual bar is included, and some other plotting things are updated.
+
+    title : str, optional
+        Default is the wavelength.
+
+    Returns
+    -------
+    fig, ax : matplotlib Figure and Axes
+        A tuple containing the Figure and Axes objects of the plot.
+    """
+    
+    if interleaved_stds is None:
+        interleaved_stds = np.zeros_like(interleaved_values)
+
+    interleaved_stds = process_errors(interleaved_stds, interleaved_values)
+    dd_stds = interleaved_stds[::2]
+    ds_stds = interleaved_stds[1::2]
+    interleaved_values = process_dataset(interleaved_values)
+
+    # Extract double differences and sums
+    dd_values = interleaved_values[::2]
+    ds_values = interleaved_values[1::2]
+    dd_model = model[::2]
+    ds_model = model[1::2]
+
+    # Group by HWP theta
+    dd_by_hwp = {}
+    ds_by_hwp = {}
+
+    for i, config in enumerate(configuration_list[::2]):
+        hwp_theta = round(config["hwp"]["theta"], 1)
+        pa = config["altitude_rot"]["pa"]
+
+        if hwp_theta_filter is not None and hwp_theta != round(hwp_theta_filter, 1):
+            continue
+
+        if hwp_theta not in dd_by_hwp:
+            dd_by_hwp[hwp_theta] = {"pa": [], "values": [], "stds": [], "model": []}
+        dd_by_hwp[hwp_theta]["pa"].append(pa)
+        dd_by_hwp[hwp_theta]["values"].append(dd_values[i])
+        dd_by_hwp[hwp_theta]["stds"].append(dd_stds[i])
+        dd_by_hwp[hwp_theta]["model"].append(dd_model[i])
+
+        if hwp_theta not in ds_by_hwp:
+            ds_by_hwp[hwp_theta] = {"pa": [], "values": [], "stds": [], "model": []}
+        ds_by_hwp[hwp_theta]["pa"].append(pa)
+        ds_by_hwp[hwp_theta]["values"].append(ds_values[i])
+        ds_by_hwp[hwp_theta]["stds"].append(ds_stds[i])
+        ds_by_hwp[hwp_theta]["model"].append(ds_model[i])
+
+    # Create plots
+    if include_sums:
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True)
+    else:
+        fig, axarr = plt.subplots(
+            2, 1,
+            figsize=(10, 6),
+            gridspec_kw={"height_ratios": [3, 1]},
+            sharex=True
+        )
+        ax = axarr[0]
+        small_ax = axarr[1]
+
+    # Double Difference
+    if include_sums:
+        ax = axes[0]
+        for hwp, d in dd_by_hwp.items():
+            err = ax.errorbar(
+                d["pa"], d["values"],
+                yerr=d["stds"], fmt='o',
+                label=f"{hwp}°"
+            )
+            color = err[0].get_color()
+            ax.plot(d["pa"], d["model"], '-', color=color)
+
+        ax.set_xlabel("Altitude angle PA (deg)")
+        ax.set_ylabel("Double Difference")
+        ax.legend(title=r"HWP $\theta$")
+
+        # Double Sum
+        ax = axes[1]
+        for hwp, d in ds_by_hwp.items():
+            err = ax.errorbar(
+                d["pa"], d["values"],
+                yerr=d["stds"], fmt='o',
+                label=f"{hwp}°"
+            )
+            color = err[0].get_color()
+            ax.plot(d["pa"], d["model"], '-', color=color)
+
+        ax.set_xlabel("Altitude angle PA (deg)")
+        ax.set_ylabel("Double Sum")
+        ax.legend(title=r"HWP $\theta$")
+
+    else:
+        for hwp, d in dd_by_hwp.items():
+            err = ax.errorbar(
+                d["pa"], d["values"],
+                yerr=d["stds"], fmt='o',
+                label=f"{hwp}°"
+            )
+            color = err[0].get_color()
+            ax.plot(d["pa"], d["model"], '-', color=color)
+
+            residuals = (np.array(d["values"]) - np.array(d["model"])) * 100
+            small_ax.scatter(d["pa"], residuals, color=color)
+
+        small_ax.axhline(0, color='black', linewidth=1)
+        small_ax.set_xlabel("Altitude angle PA (deg)")
+        small_ax.set_ylabel(r"Residual ($\%$)")
+        ax.set_ylabel("Double Difference")
+        ax.legend(title=r"HWP $\theta$")
+        ax.grid()
+
+    if wavelength is not None and title is None:
+        fig.suptitle(f"{wavelength}nm")
+    if title:
+        fig.suptitle(title)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=600, bbox_inches='tight')
+
+    plt.show()
+    return fig, ax
+
 
 
 ####################################

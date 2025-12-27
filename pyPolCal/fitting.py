@@ -1,10 +1,14 @@
+from matplotlib.pyplot import plot
 from pyPolCal.utils import parse_configuration,update_system_mm,generate_measurement
 import numpy as np
 from scipy.optimize import minimize, least_squares
 import copy
 from pyPolCal.constants import wavelength_bins
 from pyPolCal.utils import process_model,process_dataset,process_errors,generate_system_mueller_matrix
-from pyPolCal.csv_tools import read_csv_physical_model_all_bins
+from pyPolCal.csv_tools import read_csv
+from pyPolCal.plotting import plot_data_and_model,plot_data_and_model_alt
+from pathlib import Path
+from glob import glob
 
 ########################################################################################
 ###### Functions related to fitting ####################################################
@@ -469,7 +473,7 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
 
     return output_intensities
 
-def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=False):
+def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=False,plot=False):
     """
     Calculate s_res as in VLT SPHERE 2019 polcal appendix E for all CHARIS
     wavelength bins. All system dict mueller matrices must be a function of wavelength
@@ -487,6 +491,8 @@ def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=F
         Number of parameters fitted using the data in <csvdir>.
     m3 : bool, optional
         Whether or not m3 is in the system dictionary. Default is False.
+    plot: bool, optional
+        Whether or not to plot the model for each bin.
 
     Returns
     --------
@@ -497,42 +503,36 @@ def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=F
 
     # generate system mueller matrix
     system_mm_ = generate_system_mueller_matrix(system_dict)
-
-    # read csv into single differences and parse configuration list
-    interleaved_values, interleaved_stds, configuration_list = read_csv_physical_model_all_bins(csvdir, m3=m3)
-    p0_values, p0_keywords = parse_configuration(p0_dict)
-
-    # update system mm with p0 
-    system_mm = update_system_mm(p0_values,p0_keywords,system_mm_)
-
-    # generate simulated normalized single differences
-    LR_intensities = model(p0_values, p0_keywords, system_mm, configuration_list)
-
-    # process into modeled double differences
-    modeled_diffs = process_model(LR_intensities)[::2]
-
-    # process observed data into double differences
-    obs_diff = process_dataset(interleaved_values)[::2]
-
-    # convert units to percent and calculate residuals
-    residuals = obs_diff*100 - modeled_diffs*100
-
-    # group by wavelength bin using a bin mask
     s_res_by_wavelength = []
-    for bin in range(22):
-        # mask per bin
-        bin_mask = []
-        for dict in configuration_list[::2]:
-            if dict['hwp']['wavelength'] == wavelength_bins[bin]:
-                bin_mask.append(True)
-            else:
-                bin_mask.append(False)
-        # apply mask
-        double_diffs_by_bin = obs_diff[bin_mask]
-        modeled_diffs_by_bin = modeled_diffs[bin_mask]
-        residuals_by_bin = double_diffs_by_bin*100-modeled_diffs_by_bin*100
-        # calculate s_res
-        s_res = np.sqrt(np.sum(residuals_by_bin**2)/(len(double_diffs_by_bin)-number_of_fitted_params))
+    for csv in sorted(
+    Path(csvdir).glob('bin*.csv'),
+    key=lambda p: int(p.stem[3:])
+):
+
+        # read csv into single differences and parse configuration list
+        if m3==False:
+            interleaved_values, interleaved_stds, configuration_list = read_csv(csv, mode='wavelength')
+        if m3==True:
+            interleaved_values, interleaved_stds, configuration_list = read_csv(csv,mode='m3_mcmc')
+        p0_values, p0_keywords = parse_configuration(p0_dict)
+
+        # update system mm with p0 
+        system_mm = update_system_mm(p0_values,p0_keywords,system_mm_)
+
+        # generate simulated normalized single differences
+        LR_intensities = model(p0_values, p0_keywords, system_mm, configuration_list)
+
+        # process into modeled double differences
+        modeled_diffs = process_model(LR_intensities)[::2]
+
+        # process observed data into double differences
+        obs_diff = process_dataset(interleaved_values)[::2]
+
+        # convert units to percent and calculate residuals
+        residuals = obs_diff*100 - modeled_diffs*100
+
+        # Calculate s_res
+        s_res = np.sqrt(np.sum(residuals**2)/(len(obs_diff)-number_of_fitted_params))
         s_res_by_wavelength.append(s_res)
 
     return s_res_by_wavelength

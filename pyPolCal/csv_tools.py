@@ -5,7 +5,7 @@ from photutils.aperture import RectangularAperture
 from photutils.aperture import aperture_photometry
 import pandas as pd
 import re
-from pyPolCal.constants import wavelength_bins
+from pyPolCal.constants import wavelength_bins, charis_aperture_l, charis_aperture_r
 import json
 
 ###############################################################
@@ -13,7 +13,7 @@ import json
 ###############################################################
 
 
-def single_sum_and_diff(fits_cube_path, wavelength_bin):
+def single_sum_and_diff(fits_cube_path, wavelength_bin, aperture_l=charis_aperture_l, aperture_r=charis_aperture_r):
     """Calculate single difference and sum between left and right beam 
     rectangular aperture photometry from CHARIS internal calibration
     fits cubes. Add L/R counts and stds to array.
@@ -25,7 +25,13 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
         
     wavelength_bin : int
         Index of the wavelength bin to analyze (0-based).
-    
+
+    aperture_l: photutils.aperture.Aperture
+        Photutils aperture object for the left Wollaston beam. Default is hardcoded CHARIS aperture.
+
+    aperture_r: photutils.aperture.Aperture
+        Photutils aperture object for the right Wollaston beam. Default is hardcoded CHARIS aperture.
+
     Returns
     --------
     np.ndarray
@@ -66,17 +72,9 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin):
     
     image_data = cube_data[wavelength_bin]
 
-    # define rectangular apertures for left and right beams
-    # these values are based on ds9 pixel by pixel analysis
-    centroid_lbeam = [71.75, 86.25]
-    centroid_rbeam = [131.5, 116.25]
-    aperture_width = 44.47634202584561
-    aperture_height = 112.3750880855165
-    theta = 0.46326596610192305
-
-    # define apertures perform aperture photometry 
-    aperture_lbeam = RectangularAperture(centroid_lbeam, aperture_width, aperture_height, theta=theta)
-    aperture_rbeam = RectangularAperture(centroid_rbeam, aperture_width, aperture_height, theta=theta)
+    # perform aperture photometry 
+    aperture_lbeam = aperture_l
+    aperture_rbeam = aperture_r
     phot_lbeam = aperture_photometry(image_data, aperture_lbeam)
     phot_rbeam = aperture_photometry(image_data, aperture_rbeam)
 
@@ -183,7 +181,7 @@ def arr_csv_HWP(csv_path, hwp_order, todelete=None, new_csv_path=None):
 
 
 
-def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin,hwp_order=[0,45,11.25,56.25,22.5,67.5,33.75,78.75],hwp_angles_to_delete=[90]):
+def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin,hwp_order=[0,45,11.25,56.25,22.5,67.5,33.75,78.75],hwp_angles_to_delete=[90],aperture_l=charis_aperture_l, aperture_r=charis_aperture_r):
     """Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
     single sum, single difference, LCOUNTS, RCOUNTS, difference std,
     sum std, and wavelength values for a wavelength bin from each fits cube in the directory.
@@ -265,7 +263,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
                 d_imrang = (np.round(d_imrang * 2) / 2)
 
                 # calculate single sum and normalized single difference
-                single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff(fits_file, wavelength_bin)
+                single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff(fits_file, wavelength_bin, aperture_l=aperture_l, aperture_r=aperture_r)
 
                 # wavelength bins for lowres mode
                 bins = wavelength_bins
@@ -298,6 +296,7 @@ def read_csv(file_path, mode= 'standard'):
         to the configuration list for physical model fitting.
         If mode = 'm3', it will add the parallactic and altitude angles to the configuration list.
         If mode = 'm3_mcmc', it adds parallactic angle, altitude angle, and wavelength to the configuration list.
+
 
     Returns
     -----------
@@ -376,7 +375,7 @@ def read_csv(file_path, mode= 'standard'):
         return interleaved_values, interleaved_stds, configuration_list
     
 
-def read_csv_physical_model_all_bins(csv_dir,m3=False):
+def read_csv_physical_model_all_bins(csv_dir,m3=False, aperture_l=charis_aperture_l, aperture_r=charis_aperture_r):
     """
     Does the same thing as read_csv() but reads all 22 csvs written
     in a directory for all 22 CHARIS wavelength bins and puts everything into one array.
@@ -392,6 +391,12 @@ def read_csv_physical_model_all_bins(csv_dir,m3=False):
     m3 : bool, optional
         Adds necessary parameters to the config dict to fit m3's physical model
         parameters. Adds wavelength for M3, IMR, and HWP.
+
+    aperture_l : photutils.aperture.Aperture
+        Photutils aperture object for the left Wollaston beam. Default is hardcoded CHARIS aperture.
+
+    aperture_r : photutils.aperture.Aperture
+        Photutils aperture object for the right Wollaston beam. Default is hardcoded CHARIS aperture.
 
     Returns
     -----------
@@ -428,13 +433,13 @@ def read_csv_physical_model_all_bins(csv_dir,m3=False):
     configuration_list_all = []
     if m3 is False:
         for file in sorted_files:
-            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='wavelength')
+            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='wavelength',aperture_l=aperture_l, aperture_r=aperture_r)
             interleaved_values_all = np.append(interleaved_values_all, interleaved_values)
             interleaved_stds_all = np.append(interleaved_stds_all, interleaved_stds)
             configuration_list_all.extend(configuration_list)
     if m3 is True:
         for file in sorted_files:
-            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='m3_mcmc')
+            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='m3_mcmc',aperture_l=aperture_l, aperture_r=aperture_r)
             interleaved_values_all = np.append(interleaved_values_all, interleaved_values)
             interleaved_stds_all = np.append(interleaved_stds_all, interleaved_stds)
             configuration_list_all.extend(configuration_list)

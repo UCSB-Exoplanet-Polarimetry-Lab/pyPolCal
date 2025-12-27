@@ -13,7 +13,7 @@ from photutils.centroids import (centroid_com, centroid_sources)
 from pyPolCal.constants import wavelength_bins
 from pyPolCal.utils import generate_system_mueller_matrix,process_dataset,process_errors,process_model,parse_configuration
 from pyPolCal.fitting import update_p0,update_system_mm,minimize_system_mueller_matrix,model
-from pyPolCal.plotting import plot_data_and_model
+from pyPolCal.plotting import plot_data_and_model, plot_data_and_model_alt
 import traceback
 from pyPolCal.csv_tools import arr_csv_HWP,read_csv, model_data
 import json
@@ -369,171 +369,6 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
 
     print(f"CSV file written to {output_csv_path}")
 
-def plot_data_and_model_alt(interleaved_values, model, 
-    configuration_list, interleaved_stds=None,
-    hwp_theta_filter=None, wavelength=None, save_path=None,
-    include_sums=True, title=None):
-
-    """
-    Plots double difference and double sum measurements alongside model predictions,
-    grouped by altitude angle. Optionally filters by a specific 
-    image rotator angle and displays a wavelength in the plot title.
-
-    Parameters
-    ----------
-    interleaved_values : np.ndarray
-        Interleaved array of observed single difference and single sum values.
-        Expected format: [sd1, ss1, sd2, ss2, ...]. 
-
-
-    model : np.ndarray
-        Interleaved array of model-predicted double difference and double sum values.
-        If charis use single differences and sums. 
-
-    configuration_list : list of dict
-        List of system configurations (one for each measurement), where each dictionary 
-        contains component settings like HWP and image rotator angles.
-
-    interleaved_stds : np.ndarray
-        Interleaved array of standard deviations corresponding to the observed values.
-
-    imr_theta_filter : float, optional
-        If provided, only measurements with this image rotator angle (rounded to 0.1°) 
-        will be plotted.
-
-    wavelength : str or int, optional
-        Wavelength (e.g., 670 or "670") to display as a centered title with "nm" units 
-        (e.g., "670nm").
-
-    include_sums : bool, optional
-        Default is True, plotting the double sums as well as the differences. If false, only the
-        double differences are plotted, a residual bar is included, and some other plotting things are updated.
-
-    title : str, optional
-        Default is the wavelength.
-
-    Returns
-    -------
-    fig, ax : matplotlib Figure and Axes
-        A tuple containing the Figure and Axes objects of the plot.
-    """
-    
-    if interleaved_stds is None:
-        interleaved_stds = np.zeros_like(interleaved_values)
-
-    interleaved_stds = process_errors(interleaved_stds, interleaved_values)
-    dd_stds = interleaved_stds[::2]
-    ds_stds = interleaved_stds[1::2]
-    interleaved_values = process_dataset(interleaved_values)
-
-    # Extract double differences and sums
-    dd_values = interleaved_values[::2]
-    ds_values = interleaved_values[1::2]
-    dd_model = model[::2]
-    ds_model = model[1::2]
-
-    # Group by HWP theta
-    dd_by_hwp = {}
-    ds_by_hwp = {}
-
-    for i, config in enumerate(configuration_list[::2]):
-        hwp_theta = round(config["hwp"]["theta"], 1)
-        pa = config["altitude_rot"]["pa"]
-
-        if hwp_theta_filter is not None and hwp_theta != round(hwp_theta_filter, 1):
-            continue
-
-        if hwp_theta not in dd_by_hwp:
-            dd_by_hwp[hwp_theta] = {"pa": [], "values": [], "stds": [], "model": []}
-        dd_by_hwp[hwp_theta]["pa"].append(pa)
-        dd_by_hwp[hwp_theta]["values"].append(dd_values[i])
-        dd_by_hwp[hwp_theta]["stds"].append(dd_stds[i])
-        dd_by_hwp[hwp_theta]["model"].append(dd_model[i])
-
-        if hwp_theta not in ds_by_hwp:
-            ds_by_hwp[hwp_theta] = {"pa": [], "values": [], "stds": [], "model": []}
-        ds_by_hwp[hwp_theta]["pa"].append(pa)
-        ds_by_hwp[hwp_theta]["values"].append(ds_values[i])
-        ds_by_hwp[hwp_theta]["stds"].append(ds_stds[i])
-        ds_by_hwp[hwp_theta]["model"].append(ds_model[i])
-
-    # Create plots
-    if include_sums:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True)
-    else:
-        fig, axarr = plt.subplots(
-            2, 1,
-            figsize=(10, 6),
-            gridspec_kw={"height_ratios": [3, 1]},
-            sharex=True
-        )
-        ax = axarr[0]
-        small_ax = axarr[1]
-
-    # Double Difference
-    if include_sums:
-        ax = axes[0]
-        for hwp, d in dd_by_hwp.items():
-            err = ax.errorbar(
-                d["pa"], d["values"],
-                yerr=d["stds"], fmt='o',
-                label=f"{hwp}°"
-            )
-            color = err[0].get_color()
-            ax.plot(d["pa"], d["model"], '-', color=color)
-
-        ax.set_xlabel("Altitude angle PA (deg)")
-        ax.set_ylabel("Double Difference")
-        ax.legend(title=r"HWP $\theta$")
-
-        # Double Sum
-        ax = axes[1]
-        for hwp, d in ds_by_hwp.items():
-            err = ax.errorbar(
-                d["pa"], d["values"],
-                yerr=d["stds"], fmt='o',
-                label=f"{hwp}°"
-            )
-            color = err[0].get_color()
-            ax.plot(d["pa"], d["model"], '-', color=color)
-
-        ax.set_xlabel("Altitude angle PA (deg)")
-        ax.set_ylabel("Double Sum")
-        ax.legend(title=r"HWP $\theta$")
-
-    else:
-        for hwp, d in dd_by_hwp.items():
-            err = ax.errorbar(
-                d["pa"], d["values"],
-                yerr=d["stds"], fmt='o',
-                label=f"{hwp}°"
-            )
-            color = err[0].get_color()
-            ax.plot(d["pa"], d["model"], '-', color=color)
-
-            residuals = (np.array(d["values"]) - np.array(d["model"])) * 100
-            small_ax.scatter(d["pa"], residuals, color=color)
-
-        small_ax.axhline(0, color='black', linewidth=1)
-        small_ax.set_xlabel("Altitude angle PA (deg)")
-        small_ax.set_ylabel(r"Residual ($\%$)")
-        ax.set_ylabel("Double Difference")
-        ax.legend(title=r"HWP $\theta$")
-        ax.grid()
-
-    if wavelength is not None and title is None:
-        fig.suptitle(f"{wavelength}nm")
-    if title:
-        fig.suptitle(title)
-
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-
-    if save_path is not None:
-        plt.savefig(save_path, dpi=600, bbox_inches='tight')
-
-    plt.show()
-    return fig, ax
-
 
 
 def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):
@@ -600,9 +435,9 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
     #configuration_list = configuration_list 
 
     # Loading in past fits 
-    offset_imr = -0.4506# derotator offset
-    offset_hwp = -1.119# HWP offset
-    offset_cal = -0.5905 # calibration polarizer offset
+    offset_imr = 0.00637# derotator offset
+    offset_hwp = -0.03303# HWP offset
+    offset_cal = -0.01506 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
     imr_phi = IMR_retardance(wavelength_bins,259.12694)[wavelength_bin]
@@ -621,6 +456,11 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
             "properties" : {"wavelength": wavelength_bins[wavelength_bin], "beam": 'o'}, 
             "tag": "internal",
             },
+            "nbs_rot": {
+                "type": "rotator_function",
+                "properties": {"pa": 90},
+                "tag": "internal",
+            },
             "image_rotator" : {
                 "type" : "elliptical_IMR_function",
                 "properties" : {"wavelength": wavelength_bins[wavelength_bin], "theta": imr_theta, "delta_theta": offset_imr},
@@ -628,7 +468,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
             },
             "hwp" : {
                 "type" : "two_layer_HWP_function",
-                "properties" : {"wavelength": wavelength_bins[wavelength_bin], "w_SiO2": 1.636, "w_MgF2": 1.278, "theta": hwp_theta, "delta_theta": offset_hwp},
+                "properties" : {"wavelength": wavelength_bins[wavelength_bin], "w_SiO2": 1.638, "w_MgF2": 1.28, "theta": hwp_theta, "delta_theta": offset_hwp},
                 "tag": "internal",
             },
             "altitude_rot" : {
@@ -637,8 +477,8 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
                 "tag":"internal",
             },
             "M3" : {
-                "type" : "general_diattenuator_function",
-                "properties" : {"d_h": m3_diat,"d_45":0,"theta": 0, "delta_theta":0},
+                "type" : "diattenuator_retarder_function",
+                "properties" : {"epsilon":m3_diat, "theta": 0, "delta_theta":0},
                 "tag": "internal",
             },
 
@@ -658,8 +498,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
     p0 = {
         "M3": {
-            "d_h": m3_diat, "d_45": 0.01,
-        },
+            "epsilon": m3_diat, "delta_theta":0}
 
     }
     # Define some bounds
@@ -682,7 +521,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
             previous_logl = new_logl
         # Configuring minimization function for CHARIS
         result, new_logl,error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, configuration_list,
-            interleaved_stds, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [(-1,1),(-1,1)],mode='least_squares')
+            interleaved_stds, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [(-1,1),(-180,180)],mode='least_squares')
         print(result)
 
         # Update p0 with new values
