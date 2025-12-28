@@ -19,7 +19,7 @@ from pyMuellerMat.physical_models.charis_physical_models import IMR_retardance, 
 from pyPolCal.csv_tools import read_csv, model_data
 from pyPolCal.utils import generate_system_mueller_matrix,process_dataset,process_errors,process_model,parse_configuration
 from pyPolCal.fitting import update_p0,update_system_mm,minimize_system_mueller_matrix,model
-from pyPolCal.plotting import plot_data_and_model
+from pyPolCal.plotting import plot_data_and_model, plot_data_and_model_alt
 import json
 
 def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):
@@ -883,7 +883,213 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
     error = np.array(error)
     return error, fig, ax, s_res
 
+def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):
+    """
+    Mainly a wrapper function for minimize_system_mueller_matrix(). I find it easier to just modify
+    this function every time I do a new fit than to use minimize_system_mueller_matrix().
+    Fits a Mueller matrix for one wavelength bin from internal calibration data and saves
+    the updated configuratio dictionary to a JSON file. Creates a plot
+    of each updated model vs the data. Initial guesses for all fits are from Joost t Hart 2021.
+    Note that following the most recent model update these guesses should be updated.
+    The csv containing the calibration data and relevant headers can be obtained by 
+    the write_fits_info_to_csv function in instruments.py. This code is always being modified to fit
+    different things. What is being fitted for can be found in the p0 dictionary in the code.
+    It can be modified relatively easily to fit for other parameters as well. 
 
+    Parameters
+    ----------
+    csv_path : str or Path
+        Path to the CSV file containing the calibration data. Must contain the columns "D_IMRANG", 
+    "RET-ANG1", "single_sum", "single_diff", "diff_std", and "sum_std", "p","a".
+
+    wavelength_bin : int
+        The index of the wavelength bin to fit (0-21 for CHARIS).
+
+    new_system_dict_path : str or Path
+        Path to save the new system dictionary as a JSON file. The config dict
+        component names will be 'lp' for calibration polarizer, 'image_rotator' for image rotator,
+        and 'hwp' for half-wave plate.
+
+    plot_path : str or Path, optional
+        Path to save the plot of the observed vs modeled data. If not provided, no plot will be saved.
+        Must have a .png extension.
+    
+    Returns
+    -------
+    error : np.array
+      An array of the errors for each parameter. Estimated using the method from van Holstein et al. 2020.
+      van Holstein et al. 2020.
+    fig : MatPlotLib figure object
+    ax : MatPlotLib axis object
+    s_res : float
+      The polarimetric accuracy of the fit, calculated as the standard deviation of the residuals.
+    """
+    # Check file paths
+    filepath = Path(csv_path)
+    new_config_dict_path=Path(new_config_dict_path)
+    if not filepath.exists() or filepath.suffix != ".csv":
+        raise ValueError("Please provide a valid .csv file.")
+    if plot_path:
+        plot_path = Path(plot_path)
+        if plot_path.suffix != ".png":
+            raise ValueError("Please provide a valid .png file for plotting.")
+    if new_config_dict_path.suffix != ".json":
+        raise ValueError("Please provide a valid .json file for saving the new system dictionary.")
+    new_config_dict_path = Path(new_config_dict_path)
+
+    # Read in data
+    interleaved_values, interleaved_stds, configuration_list = read_csv(filepath,mode='m3')
+    # this works, not really sure why
+    interleaved_values_forplotfunc = copy.deepcopy(interleaved_values)
+    interleaved_stds_forlplotfunc = copy.deepcopy(interleaved_stds)
+    #interleaved_stds = process_errors(interleaved_stds,interleaved_values)[::2] # just diffs
+    #interleaved_values = process_dataset(interleaved_values)[::2] # just diffs
+    #configuration_list = configuration_list 
+
+    # Loading in past fits 
+    offset_imr = 0.00637# derotator offset
+    offset_hwp = -0.03303# HWP offset
+    offset_cal = -0.01506 # calibration polarizer offset
+    imr_theta = 0 # placeholder 
+    hwp_theta = 0 # placeholder
+    imr_phi = IMR_retardance(wavelength_bins,259.12694)[wavelength_bin]
+    hwp_phi = HWP_retardance(wavelength_bins,1.636,1.278)[wavelength_bin]
+    epsilon_cal = 1
+    m1, b1, m2, b2 = (1.94073,13.69728,2.07958,13.88817) # from MCMC
+    m3_diat = M3_diattenuation(wavelength_bins[wavelength_bin],m1,b1,m2,b2)
+    m3_ret = M3_retardance(wavelength_bins[wavelength_bin],m1,b1,m2,b2)
+
+    # Define instrument configuration as system dictionary
+    # Wollaston beam, imr theta/phi, and hwp theta/phi will all be updated within functions, so don't worry about their values here
+    system_dict = {
+        "components" : {
+            "wollaston" : {
+            "type" : "CHARIS_wollaston_function",
+            "properties" : {"wavelength": wavelength_bins[wavelength_bin], "beam": 'o'}, 
+            "tag": "internal",
+            },
+            "nbs_rot": {
+                "type": "rotator_function",
+                "properties": {"pa": 90},
+                "tag": "internal",
+            },
+            "image_rotator" : {
+                "type" : "elliptical_IMR_function",
+                "properties" : {"wavelength": wavelength_bins[wavelength_bin], "theta": imr_theta, "delta_theta": offset_imr},
+                "tag": "internal",
+            },
+            "hwp" : {
+                "type" : "two_layer_HWP_function",
+                "properties" : {"wavelength": wavelength_bins[wavelength_bin], "w_SiO2": 1.638, "w_MgF2": 1.28, "theta": hwp_theta, "delta_theta": offset_hwp},
+                "tag": "internal",
+            },
+            "altitude_rot" : {
+                "type" : "rotator_function",
+                "properties" : {"pa":0},
+                "tag":"internal",
+            },
+            "M3" : {
+                "type" : "diattenuator_retarder_function",
+                "properties" : {"epsilon":m3_diat, "theta": 0, "delta_theta":0},
+                "tag": "internal",
+            },
+
+            "parang_rot" : {
+                "type" : "rotator_function",
+                "properties" : {"pa":0},
+                "tag":"internal",
+            },
+    }
+    }
+
+    # Converting system dictionary into system Mueller Matrix object
+    system_mm = generate_system_mueller_matrix(system_dict)
+
+    # Define initial guesses for our parameters 
+
+    # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS
+    p0 = {
+        "M3": {
+            "epsilon": m3_diat, "delta_theta":0}
+
+    }
+    # Define some bounds
+    # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS, ADD NEW BOUNDS OR CHANGE THEM
+    polbounds = (-np.sqrt(3),np.sqrt(3)) 
+
+    # Minimize the system Mueller matrix using the interleaved values and standard deviations
+ 
+
+    # Counters for iterative fitting
+
+    iteration = 1
+    previous_logl = 1000000
+    new_logl = 0
+
+    # Perform iterative fitting
+    # MODIFY THE BOUNDS INPUT HERE IF YOU WANT TO CHANGE PARAMETERS
+    while abs(previous_logl - new_logl) > 0.01*abs(previous_logl):
+        if iteration > 1:
+            previous_logl = new_logl
+        # Configuring minimization function for CHARIS
+        result, new_logl,error = minimize_system_mueller_matrix(p0, system_mm, interleaved_values, configuration_list,
+            interleaved_stds, process_dataset=process_dataset,process_model=process_model,process_errors=process_errors,include_sums=False, bounds = [(-1,1),(-180,180)],mode='least_squares')
+        print(result)
+
+        # Update p0 with new values
+
+        update_p0(p0, result.x)
+        
+        iteration += 1
+
+
+    # Update p dictionary with the fitted values
+
+    update_p0(p0, result.x)
+    # Process model
+
+    p0_values, p0_keywords = parse_configuration(p0)
+
+    # Generate modeled left and right beam intensities
+
+    updated_system_mm = update_system_mm(result.x, p0_keywords, system_mm)
+
+    # Generate modeled left and right beam intensities
+
+    LR_intensities2 = model(p0_values, p0_keywords, updated_system_mm, configuration_list)
+
+    # Process these into interleaved single normalized differences and sums
+
+    diffs_sums2 = process_model(LR_intensities2)
+
+    # Plot the modeled and observed values
+    if plot_path:
+        fig , ax = plot_data_and_model_alt(interleaved_values_forplotfunc, diffs_sums2,configuration_list, interleaved_stds_forlplotfunc, wavelength= wavelength_bins[wavelength_bin], include_sums=False,save_path=plot_path)
+    else:
+        fig , ax = plot_data_and_model_alt(interleaved_values_forplotfunc, diffs_sums2,configuration_list, interleaved_stds_forlplotfunc, wavelength= wavelength_bins[wavelength_bin],include_sums=False)
+
+    # Print the Mueller matrix
+
+    print("Updated Mueller Matrix:")
+    print(updated_system_mm.evaluate())
+
+    # Print residuals
+    print(len(interleaved_values), len(diffs_sums2))
+    data_dd = process_dataset(interleaved_values)[::2]
+    model_dd = diffs_sums2[::2]
+    residuals = data_dd*100 - model_dd*100
+    print("Residuals range:", residuals.min(), residuals.max())
+    print("Error:", error)
+    # calculate s_res
+    s_res = np.sqrt(np.sum(residuals**2)/(len(data_dd)-len(p0_values)))
+    print("s_res:", s_res)
+
+    # Save system dictionary to a json file
+
+    with open (new_config_dict_path, 'w') as f:
+        json.dump(p0, f, indent=4)
+    #error = np.array(error)
+    return error,fig, ax, s_res
 
 
 

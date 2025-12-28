@@ -403,12 +403,6 @@ def read_csv_physical_model_all_bins(csv_dir,m3=False):
         Adds necessary parameters to the config dict to fit m3's physical model
         parameters. Adds wavelength for M3, IMR, and HWP.
 
-    aperture_l : photutils.aperture.Aperture
-        Photutils aperture object for the left Wollaston beam. Default is hardcoded CHARIS aperture.
-
-    aperture_r : photutils.aperture.Aperture
-        Photutils aperture object for the right Wollaston beam. Default is hardcoded CHARIS aperture.
-
     Returns
     -----------
     interleaved_values_all : list
