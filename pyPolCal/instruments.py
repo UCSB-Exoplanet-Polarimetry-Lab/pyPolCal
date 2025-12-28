@@ -294,7 +294,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
     epsilon_cal = 1
     m3_phi = M3_retardance(wavelength_bins[wavelength_bin])
     m3_epsilon = M3_diattenuation(wavelength_bins[wavelength_bin])
-    df_ellip = model_data('../system_dictionaries/nbs_in_internalcal')
+    df_ellip = model_data('../fitted_p_dicts/nbs_in_internalcal')
     imr_phi_45 = df_ellip['image_rotator_phi_45'].values[wavelength_bin]
     imr_phi_r = df_ellip['image_rotator_phi_r'].values[wavelength_bin]
     imr_phi_h = df_ellip['image_rotator_phi_h'].values[wavelength_bin]
