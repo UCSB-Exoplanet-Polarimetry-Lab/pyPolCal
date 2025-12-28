@@ -1,8 +1,25 @@
+"""
+utils.py
+
+Utility functions for model generation and polarimetry.
+
+
+"""
+
+
+
+
+
+
+
+
+
 import numpy as np
 import pyMuellerMat
 from pyMuellerMat.common_mm_functions import *
 from pyMuellerMat import common_mms as cmm
 from pyMuellerMat import MuellerMat
+from pyPolCal.mm_registry import MM_FUNCTION_REGISTRY
 
 def stokes_to_deg_pol_and_aolp(Q, U):
     pol_percent = np.sqrt(Q ** 2 + U ** 2) * 100  # Convert to percentage
@@ -62,11 +79,10 @@ def generate_system_mueller_matrix(system_dict):
         component_type_str = component["type"]  # Extract the string name of the function
 
         # Convert string to actual function in pyMuellerMat.common_mm_functions
-        try:
-            component_function = getattr(pyMuellerMat.common_mm_functions, component_type_str)
-        except AttributeError:
-            print(f"Error: '{component_type_str}' is not a valid function in pyMuellerMat.common_mm_functions and will be skipped.")
-            continue  # Skip this component if function not found
+        component_function = MM_FUNCTION_REGISTRY.get(component_type_str)
+        if component_function is None:
+            print(f"Error: '{component_type_str}' is not found in MM_FUNCTION_REGISTRY and will be skipped.")
+            continue
         
         # Create MuellerMatrix object with the retrieved function
         try:
