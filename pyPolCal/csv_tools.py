@@ -345,7 +345,7 @@ def read_csv(file_path, mode= 'standard'):
             row_data = {
                 "hwp": {"theta": hwp_theta},
                 "image_rotator": {"theta": imr_theta},
-                "altitude_rot": {"pa":a},
+                "altitude_rot": {"pa":-a}, # negative altitude angle, confirmed with SCExAO people this is right
                 "parang_rot": {"pa":p}
             }
         elif mode == 'm3_mcmc':
@@ -355,7 +355,7 @@ def read_csv(file_path, mode= 'standard'):
             row_data = {
                 "hwp": {"theta": hwp_theta, "wavelength": wavelength},
                 "image_rotator": {"theta": imr_theta, "wavelength": wavelength},
-                "altitude_rot": {"pa":a},
+                "altitude_rot": {"pa":-a}, # negative altitude angle, confirmed with SCExAO people this is right
                 "M3": {"wavelength":wavelength},
                 "parang_rot": {"pa":p},
                 "wollaston": {"wavelength":wavelength}
