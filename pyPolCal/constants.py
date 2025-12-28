@@ -1,3 +1,12 @@
+"""
+constants.py
+
+Contains useful hardcoded values-  CHARIS wavelength bins and 
+CHARIS Wollaston beam apertures. The apertures work as of
+11/2025.
+
+"""
+
 import numpy as np
 from photutils.aperture import RectangularAperture
 wavelength_bins = np.array([1159.5614, 1199.6971, 1241.2219, 1284.184 , 1328.6331, 1374.6208,

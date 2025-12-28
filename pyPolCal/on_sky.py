@@ -1,3 +1,16 @@
+"""
+on_sky.py
+
+Functions for calibrating using on-sky unpolarized standard stars.
+Contains versions of similar functions from other modules adapted for 
+on sky data.
+
+"""
+
+
+
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd

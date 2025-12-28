@@ -1,3 +1,11 @@
+"""
+plotting.py
+
+Plotting functions for visualizing a Mueller matrix model and measurement data.
+
+
+"""
+
 import numpy as np
 import h5py
 import json

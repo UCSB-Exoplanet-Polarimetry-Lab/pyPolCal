@@ -1,3 +1,15 @@
+"""
+instruments_jax.py
+
+Contains functions used exclusively for MCMC. 
+
+
+"""
+
+
+
+
+
 import numpy as np
 import pandas as pd
 import pyMuellerMat

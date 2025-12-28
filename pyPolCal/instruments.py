@@ -1,3 +1,16 @@
+"""
+instruments.py
+
+Contains functions that condense the entire fitting process
+into one function. Users can use this package without using this module,
+but it provides a different workflow where users can update a function's
+source code each time they want to change the model.
+
+"""
+
+
+
+
 import numpy as np
 from pathlib import Path
 import copy

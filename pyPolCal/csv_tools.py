@@ -1,3 +1,14 @@
+"""
+csv_tools.py
+
+Contains functions for reading and writing CSV files that
+contain aperture photometry data and relevant FITS headers.
+
+"""
+
+
+
+
 from pathlib import Path
 import numpy as np
 from astropy.io import fits

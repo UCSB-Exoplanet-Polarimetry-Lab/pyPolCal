@@ -1,3 +1,17 @@
+"""
+fitting.py
+
+Contains functions used for fitting Mueller matrix
+models using scipy.optimize.
+
+
+"""
+
+
+
+
+
+
 from matplotlib.pyplot import plot
 from pyPolCal.utils import parse_configuration,update_system_mm,generate_measurement
 import numpy as np

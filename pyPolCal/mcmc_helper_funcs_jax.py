@@ -1,3 +1,13 @@
+"""
+mcmc_helper_funcs_jax.py
+
+Helper functions for MCMC sampling using JAX.
+
+"""
+
+
+
+
 import jax.numpy as jnp
 from jax import jit
 
