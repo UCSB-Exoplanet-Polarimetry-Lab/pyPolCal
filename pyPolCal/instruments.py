@@ -319,20 +319,20 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
             },
             "image_rotator" : {
             "type" : "elliptical_retarder_function",
-            "properties" : {"theta": imr_theta, "delta_theta":offset_imr},
+            "properties" : {"theta": imr_theta, "delta_theta":0},
             "tag": "internal",
             },
             
             "hwp" : {
                 "type" : "diattenuator_retarder_function",
-                "properties" : {"theta": hwp_theta, "delta_theta": offset_hwp},
+                "properties" : {"theta": hwp_theta, "delta_theta": 0},
                 "tag": "internal",
             },
 
 
             "lp" :{
                 "type" : "diattenuator_retarder_function",
-                "properties" : {"epsilon": epsilon_cal, "delta_theta":offset_cal},
+                "properties" : {"epsilon": epsilon_cal, "delta_theta":0},
                 "tag": "internal",
             },
 }

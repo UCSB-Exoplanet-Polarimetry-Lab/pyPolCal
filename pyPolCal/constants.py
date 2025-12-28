@@ -9,7 +9,6 @@ centroid_lbeam = [71.75, 86.25]
 centroid_rbeam = [131.5, 116.25]
 aperture_width = 44.47634202584561
 aperture_height = 112.3750880855165
-theta = 0.46326596610192305
 
-charis_aperture_l = RectangularAperture(centroid_lbeam, aperture_width, aperture_height, theta=theta)
-charis_aperture_r = RectangularAperture(centroid_rbeam, aperture_width, aperture_height, theta=theta)
+charis_aperture_l = RectangularAperture(centroid_lbeam, aperture_width, aperture_height, theta=0.46326596610192305)
+charis_aperture_r = RectangularAperture(centroid_rbeam, aperture_width, aperture_height, theta=0.46326596610192305)
