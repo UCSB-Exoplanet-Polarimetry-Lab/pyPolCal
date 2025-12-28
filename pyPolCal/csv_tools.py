@@ -386,7 +386,7 @@ def read_csv(file_path, mode= 'standard'):
         return interleaved_values, interleaved_stds, configuration_list
     
 
-def read_csv_physical_model_all_bins(csv_dir,m3=False, aperture_l=charis_aperture_l, aperture_r=charis_aperture_r):
+def read_csv_physical_model_all_bins(csv_dir,m3=False):
     """
     Does the same thing as read_csv() but reads all 22 csvs written
     in a directory for all 22 CHARIS wavelength bins and puts everything into one array.
@@ -444,13 +444,13 @@ def read_csv_physical_model_all_bins(csv_dir,m3=False, aperture_l=charis_apertur
     configuration_list_all = []
     if m3 is False:
         for file in sorted_files:
-            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='wavelength',aperture_l=aperture_l, aperture_r=aperture_r)
+            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='wavelength')
             interleaved_values_all = np.append(interleaved_values_all, interleaved_values)
             interleaved_stds_all = np.append(interleaved_stds_all, interleaved_stds)
             configuration_list_all.extend(configuration_list)
     if m3 is True:
         for file in sorted_files:
-            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='m3_mcmc',aperture_l=aperture_l, aperture_r=aperture_r)
+            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='m3_mcmc')
             interleaved_values_all = np.append(interleaved_values_all, interleaved_values)
             interleaved_stds_all = np.append(interleaved_stds_all, interleaved_stds)
             configuration_list_all.extend(configuration_list)
