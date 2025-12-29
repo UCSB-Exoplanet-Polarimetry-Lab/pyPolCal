@@ -487,7 +487,7 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
 
     return output_intensities
 
-def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=False,plot=False):
+def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=False):
     """
     Calculate s_res as in VLT SPHERE 2019 polcal appendix E for all CHARIS
     wavelength bins. All system dict mueller matrices must be a function of wavelength
@@ -550,5 +550,57 @@ def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=F
         s_res_by_wavelength.append(s_res)
 
     return s_res_by_wavelength
+
+def calc_polarimetric_accuracy(s_abs, s_rel, p, chi_deg):
+    """
+    Compute s_DoLP and s_AoLP given absolute and relative polarimetric accuracies.
+
+    Parameters
+    ----------
+    s_abs : float
+        Absolute polarimetric accuracy, percent.
+    s_rel : float
+        Relative polarimetric accuracy, percent.
+    p : float
+        Degree of linear polarization, percent.
+    chi_deg : float
+        Angle of linear polarization in degrees.
+
+    Returns
+    -------
+    s_dolp : float
+        Accuracy in DoLP (fraction).
+    s_aolp_deg : float
+        Accuracy in AoLP (degrees).
+    """
+    s_abs = np.array(s_abs)
+    s_rel = np.array(s_rel)
+
+    # convert to fractions
+    s_abs = s_abs / 100
+    s_rel = s_rel / 100
+    p = p / 100
+
+    # Convert AoLP to radians
+    chi = np.deg2rad(chi_deg)
+
+    # Stokes components
+    q = p * np.cos(2 * chi)
+    u = p * np.sin(2 * chi)
+    # Per-component uncertainties
+    s_q = s_abs + s_rel * abs(q)
+    s_u = s_abs + s_rel * abs(u)
+
+    # Error propagation
+    s_dolp = np.sqrt((q**2 * s_q**2 + u**2 * s_u**2) / (q**2 + u**2))
+    s_aolp = 0.5 * np.sqrt((u**2 * s_q**2 + q**2 * s_u**2)) / (q**2 + u**2)
+
+    # Convert angle uncertainty to degrees
+    s_aolp_deg = np.rad2deg(s_aolp)
+
+    # convert s_dolp to percent
+    s_dolp = s_dolp * 100
+
+    return s_dolp, s_aolp_deg
 
 

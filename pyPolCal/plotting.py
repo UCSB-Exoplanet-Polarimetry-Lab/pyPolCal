@@ -5,7 +5,8 @@ Plotting functions for visualizing a Mueller matrix model and measurement data.
 
 
 """
-
+import os
+import shutil
 import numpy as np
 import h5py
 import json
@@ -603,15 +604,44 @@ def plot_data_and_model_alt(interleaved_values, model,
 ########## MCMC Plotting ###########
 ####################################
 
-def load_chain_and_labels(h5_filename, txt_filename):
-    """Load the MCMC chain and parameter names from HDF5 and .txt files."""
-    with h5py.File(h5_filename, 'r') as f:
-        chain = f['mcmc']['chain'][:]  # shape should be (nsteps, nwalkers, ndim)
+
+def load_chain_and_labels(h5_filename, txt_filename, include_logf=True):
+    """
+    Loads in output .h5 files from MCMC and outputs chains and fitted parameter
+    names.
+
+    Parameters:
+    ------------
+    
+    h5_filename : str
+        Path to the input .h5 file.
+    txt_filename : str
+        Path to the input .json file containing initial parameter guesses.
+    include_logf : bool
+        Whether to include the log_f parameter in the output. Set true for 
+        CHARIS.
+
+    Returns:
+    --------
+    chain : np.ndarray
+        MCMC chain samples (nsteps, nwalkers, ndim).
+    param_names : list of str
+        Names of the parameters.
+    """
+    base, ext = os.path.splitext(h5_filename)
+    h5_copy = base + "_copy" + ext
+    shutil.copy(h5_filename, h5_copy)
+
+    with h5py.File(h5_copy, 'r') as f:
+        chain = f['mcmc']['chain'][:]
 
     with open(txt_filename, 'r') as f:
         p0_dict = json.load(f)
 
     param_names = [f"{comp}.{param}" for comp, params in p0_dict.items() for param in params]
+    if include_logf:
+        param_names.append("log_f")
+
     return chain, param_names
 
 def plot_trace(chain, param_names, burn_in=0, max_walkers=None):
@@ -636,65 +666,67 @@ import numpy as np
 import matplotlib.pyplot as plt
 import corner
 
-def plot_corner_flat(chain, param_names, burn_in=0, median_or_max="median", num_bins=100):
+def plot_corner_flat(chain, param_names, step_range=(0, None), median_or_max="median", num_bins=100):
     """
-    Generate a corner plot from a 3D MCMC chain with enhanced styling.
-    
+    Plots MCMC corner plot from chain. Obtain chain from load_chains_and_labels().
+
     Parameters
-    ----------
+    -----------
     chain : np.ndarray
-        MCMC chain with shape (nsteps, nwalkers, nparams).
+        MCMC chain samples (nsteps, nwalkers, ndim).
     param_names : list of str
-        Names of parameters corresponding to each column of the chain.
-    burn_in : int
-        Number of initial steps to discard as burn-in.
+        Names of the parameters.
+    step_range : tuple of int
+        Range of steps to include (start, end).
     median_or_max : str
-        Whether to use "median" or "max" of posterior as truth line.
+        Whether to use the median or maximum value for the truth lines.
     num_bins : int
         Number of bins to use for histograms.
-    """
-    flat_chain = chain[burn_in:, :, :].reshape(-1, chain.shape[-1])
 
-    # Determine the 'truths' for vertical lines
+    Returns
+    ---------
+    fig : matplotlib.figure.Figure
+        The figure object containing the corner plot.
+    ax : matplotlib.axes.Axes
+        The axes object for the corner plot.
+    """
+    flat_chain = chain[step_range[0]:step_range[1], :, :].reshape(-1, chain.shape[-1])
+    converted_chain = flat_chain.copy()
+
+    for i, name in enumerate(param_names):
+        if ".phi" in name:
+            converted_chain[:, i] = converted_chain[:, i] / (2 * np.pi)
+
     if median_or_max == "median":
-        truths = np.median(flat_chain, axis=0)
+        truths = np.median(converted_chain, axis=0)
     elif median_or_max == "max":
         truths = []
-        for i in range(flat_chain.shape[1]):
-            hist, bin_edges = np.histogram(flat_chain[:, i], bins=num_bins)
+        for i in range(converted_chain.shape[1]):
+            hist, bin_edges = np.histogram(converted_chain[:, i], bins=num_bins)
             max_index = np.argmax(hist)
             max_val = (bin_edges[max_index] + bin_edges[max_index + 1]) / 2
             truths.append(max_val)
         truths = np.array(truths)
     else:
         raise ValueError("median_or_max must be 'median' or 'max'")
-
-    # Generate corner plot
+ 
     fig = corner.corner(
-        flat_chain, labels=param_names, truths=truths, plot_datapoints=False
+        converted_chain,
+        labels = [name.replace("delta_theta", "offset").replace("image_rotator", "imr") for name in param_names],
+        truths=truths,
+        plot_datapoints=False, label_kwargs={"fontsize":3}   # disables individual scatter points
     )
 
-    # Style customization
-    large_font_size = 50
-    medium_font_size = 40
-    label_font_size = 20
-    tick_font_size = 15
-    default_tick_font_size = 12
-    default_font_size = 10
-    label_padding = 40
-    tick_padding = 5
-
     for ax in fig.get_axes():
-        ax.tick_params(axis='both', labelsize=default_tick_font_size)
-        ax.xaxis.label.set_size(label_font_size)
-        ax.yaxis.label.set_size(label_font_size)
-        ax.xaxis.labelpad = label_padding
-        ax.yaxis.labelpad = label_padding
+        ax.tick_params(axis='both', labelsize=12)
+        ax.xaxis.label.set_size(20)
+        ax.yaxis.label.set_size(20)
+        ax.xaxis.labelpad = 40
+        ax.yaxis.labelpad = 40
 
-    plt.tick_params(axis='x', which='both', pad=tick_padding)
-    plt.tick_params(axis='y', which='both', pad=tick_padding)
-
-    plt.show()
+    plt.tick_params(axis='x', which='both', pad=5)
+    plt.tick_params(axis='y', which='both', pad=5)
+    return fig,ax
 
 
 def summarize_posteriors(chain, param_names, burn_in=0):
