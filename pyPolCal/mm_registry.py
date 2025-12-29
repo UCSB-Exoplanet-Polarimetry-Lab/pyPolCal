@@ -28,33 +28,41 @@ def register_mm_function(name: str | None = None):
     decorator
         A decorator that registers the function in MM_FUNCTION_REGISTRY.
     """
-    def decorator(func: Callable):
-        key = name or func.__name__
+    # internal register helper
+    def _register(func: Callable, key_name: str | None = None):
+        key = key_name or func.__name__
 
         if key in MM_FUNCTION_REGISTRY:
-            print(
-                f"Mueller matrix function '{key}' is already registered. Overwriting."
-            )
+            # allow overwriting but warn
+            print(f"Mueller matrix function '{key}' is already registered. Overwriting.")
 
+        # Validate signature: must be callable by keywords (parameters must have defaults)
         sig = inspect.signature(func)
         for param in sig.parameters.values():
-            if param.default is param.empty:
+            if param.kind is inspect.Parameter.POSITIONAL_ONLY:
+                raise TypeError(f"Mueller matrix function '{key}' cannot have positional-only parameter '{param.name}'.")
+            if param.kind is inspect.Parameter.VAR_POSITIONAL:
+                raise TypeError(f"Mueller matrix function '{key}' cannot accept *args (parameter '{param.name}').")
+            if param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD and param.default is inspect._empty:
                 raise TypeError(
-                    f"Mueller matrix function '{key}' must only have keyword arguments "
-                    f"with defaults; '{param.name}' has no default."
+                    f"Mueller matrix function '{key}' must only have keyword arguments or keyword-defaults; '{param.name}' is a required positional parameter."
                 )
 
-        def wrapped_func(**kwargs):
-            mm = func(**kwargs)
-            mm = np.asarray(mm)
-            if mm.shape != (4, 4):
-                raise ValueError(
-                    f"Mueller matrix function '{key}' must return a 4x4 array, got {mm.shape}"
-                )
-            return mm
+        # Store the original module-level function so pickle sees the module+name
         MM_FUNCTION_REGISTRY[key] = func
-        return wrapped_func
-    
+
+        # Return the original function object (important for identity/pickling)
+        return func
+
+    # Support both @register_mm_function and @register_mm_function(name='...')
+    if callable(name):
+        # Used as @register_mm_function without parentheses
+        func = name
+        return _register(func, None)
+
+    def decorator(func: Callable):
+        return _register(func, name)
+
     return decorator
 
 

@@ -567,15 +567,15 @@ def plot_data_and_model_alt(interleaved_values, model,
     else:
         for hwp, d in dd_by_hwp.items():
             err = ax.errorbar(
-                d["pa"], d["values"],
+                -np.array(d["pa"]), d["values"],
                 yerr=d["stds"], fmt='o',
                 label=f"{hwp}°"
             )
             color = err[0].get_color()
-            ax.plot(d["pa"], d["model"], '-', color=color)
+            ax.plot(-np.array(d["pa"]), d["model"], '-', color=color)
 
             residuals = (np.array(d["values"]) - np.array(d["model"])) * 100
-            small_ax.scatter(d["pa"], residuals, color=color)
+            small_ax.scatter(-np.array(d["pa"]), residuals, color=color)
 
         small_ax.axhline(0, color='black', linewidth=1)
         small_ax.set_xlabel("Altitude angle PA (deg)")
