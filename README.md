@@ -50,9 +50,12 @@ pyPolCal/
    │── instruments.py     # Wrapper functions for minimize_system_mueller_matrix to fit with one function
    │── instruments_jax.py     # Jax-compatible functions for MCMC
    │── mcmc_helper_funcs_jax.py     # More MCMC helpers
+   │── mm_registry.py # Tools for defining Mueller matrix component functions
    │── on_sky.py     # CSV/fitting tools for unpolarized or polarized standard star calibration
    │── plotting.py     # Plotting functions
    │── utils.py     # Helper functions
-   │── CHARIS/      # Tutorial notebooks for CHARIS fitting and source code for McIntosh+ 2025 SPIE polcal proceeding
+   │── CHARIS/      # CHARIS data and fitting notebooks 
+   │── custom_mms/ # User-defined custom Mueller matrix component functions (used for MCMC)
+   |── tutorial_notebooks/ # Fitting tutorials
    │── VAMPIRES/    # Source code for Zhang+ 2024 SPIE polcal proceeding
 ```
