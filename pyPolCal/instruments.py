@@ -883,7 +883,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
     error = np.array(error)
     return error, fig, ax, s_res
 
-def fit_CHARIS_Mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):
+def fit_CHARIS_mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dict_path,plot_path=None):
     """
     Mainly a wrapper function for minimize_system_mueller_matrix(). I find it easier to just modify
     this function every time I do a new fit than to use minimize_system_mueller_matrix().
