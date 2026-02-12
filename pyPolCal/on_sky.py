@@ -292,7 +292,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
                 with fits.open(raw_fits) as hdul_raw:
                     raw_header = hdul_raw[0].header
                     d_imrang = raw_header.get("D_IMRANG", np.nan)
-                    ret_ang1 = raw_header.get("RET-ANG1", np.nan)
+                    ret_ang1 = raw_header.get("RET-POS1", np.nan) # changed to ret pos 1 to correct for synchro adi
 
                 # extract image data, parang, and altitude
                 with fits.open(fits_file) as hdul:

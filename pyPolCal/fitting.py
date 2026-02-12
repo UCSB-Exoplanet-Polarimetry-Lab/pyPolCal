@@ -491,7 +491,7 @@ def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=F
     """
     Calculate s_res as in VLT SPHERE 2019 polcal appendix E for all CHARIS
     wavelength bins. All system dict mueller matrices must be a function of wavelength
-    except for what is in the configuration list.
+    except for what is in the configuration list. Expects all csv titles to follow format bin{bin}.csv.
 
     Parameters
     -----------
@@ -518,6 +518,10 @@ def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=F
     # generate system mueller matrix
     system_mm_ = generate_system_mueller_matrix(system_dict)
     s_res_by_wavelength = []
+    # check if path is empty
+    if not Path(csvdir).exists() or not any(Path(csvdir).glob('bin*.csv')):
+        print(f"No CSV files found in {csvdir}")
+        return s_res_by_wavelength
     for csv in sorted(
     Path(csvdir).glob('bin*.csv'),
     key=lambda p: int(p.stem[3:])
