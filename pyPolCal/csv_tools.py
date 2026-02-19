@@ -193,32 +193,32 @@ def arr_csv_HWP(csv_path, hwp_order, todelete=None, new_csv_path=None):
 
 
 
-def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, wavelength_bin,hwp_order=[0,45,11.25,56.25,22.5,67.5,33.75,78.75],hwp_angles_to_delete=[90],aperture_l=charis_aperture_l, aperture_r=charis_aperture_r):
+def write_fits_info_to_csv(cube_directory_path, output_csv_path, wavelength_bin, raw_cube_path=None, hwp_order=[0,45,11.25,56.25,22.5,67.5,33.75,78.75],hwp_angles_to_delete=[90],aperture_l=charis_aperture_l, aperture_r=charis_aperture_r):
     """Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
     single sum, single difference, LCOUNTS, RCOUNTS, difference std,
     sum std, and wavelength values for a wavelength bin from each fits cube in the directory.
     Default HWP order and deletion works for future double difference calculation. 
 
-    FITS parameters are extracted from raw files, while single sum and difference are calculated using the
-    fits cube data and the defined rectangular apertures.
+    Single sum and difference are calculated using photometry from defined rectangular apertures.
     If the necessary header keywords are not present, the values will be set to NaN.
 
-    Note - This function assumes that the raw and extracted cubes have the same number in the filepath. If
-    you processed your cubes in the CHARIS DPP, this is not the case. 
-    
+    For the raw files- this function assumes that the raw files have the same 8-digit ID as either the processed cubes
+    filename or 'ORIGNAME' keyword, so make sure you didn't rename your raw files.
+
     Parameters
     -----------
     cube_directory_path : str or Path
         Path to the directory containing CHARIS fits cubes.
-        
-    raw_cube_path : str or Path
-        Path to the directory containing the matching raw CHARIS FITS files.
 
     output_csv_path : str or Path
         Path where the output csv will be created.
 
     wavelength_bin : int
         Index of the wavelength bin to analyze (0-based).
+    
+    raw_cube_path : str or Path
+        Path to the directory containing the matching raw CHARIS FITS files. You'll need this
+        if you processed your cubes in the CHARIS DPP.
 
     hwp_order: list or np.ndarray
         List of desired HWP order. Default works for double difference calculations.
@@ -250,29 +250,43 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
     # prepare output csv file
     output_csv_path = Path(output_csv_path)
     with open(output_csv_path, 'w') as f:
-        f.write("filepath,D_IMRANG,RET-ANG1,single_sum,single_diff,LCOUNTS,RCOUNTS,sum_std,diff_std,wavelength_bin\n")
+        f.write("filepath,D_IMRANG,RET-ANG1,RET-POS1,single_sum,single_diff,LCOUNTS,RCOUNTS,sum_std,diff_std,wavelength_bin\n")
 
         # iterate over all fits files in the directory
         for fits_file in sorted(cube_directory_path.glob('*.fits')):
             try:
+                if raw_cube_path:
+                    # check if corresponding raw fits file exists
+                    match = re.search(r"(\d{8})", fits_file.name)
+                    if not match:
+                        # first try to grab from origname keyword
+                        origname = fits.getheader(fits_file, 0).get('ORIGNAME', None)
+                        if origname:
+                            match = re.search(r"(\d{8})", origname)
+                        if not match:
+                            raise ValueError(f"Could not extract 8-digit ID from filename {fits_file.name} to match raw files. Maybe you renamed your raw files?")
+                    fits_id = match.group(1)
+                    raw_candidates = list(raw_cube_path.glob(f"*{fits_id}*.fits"))
+                    if not raw_candidates:
+                        raise FileNotFoundError(f"No raw FITS file found for ID {fits_id}")
+                    raw_fits = raw_candidates[0]
+                    
+                    with fits.open(raw_fits) as hdul_raw:
+                        raw_header = hdul_raw[0].header
+                        d_imrang = raw_header.get("D_IMRANG", np.nan)
+                        ret_ang1 = raw_header.get("RET-ANG1", np.nan)
+                        ret_pos1 = raw_header.get("RET-POS1", np.nan)
+                else: # if no specified raw files, grab from extension 3
+                    with fits.open(fits_file) as hdul:
+                        extension_3 = hdul[3].header
+                        if not extension_3:
+                            raise ValueError(f"Could not find extension 3 in {fits_file.name}. You may be using frames processed in the DPP, which requires you to provide a raw directory.")
+                        ret_ang1 = extension_3['RET-ANG1']
+                        ret_pos1 = extension_3['RET-POS1']
+                        d_imrang = extension_3['D_IMRANG']
 
-                # check if corresponding raw fits file exists
-                match = re.search(r"(\d{8})", fits_file.name)
-                if not match:
-                    raise ValueError(f"Could not extract 8-digit ID from filename {fits_file.name}")
-                fits_id = match.group(1)
-                raw_candidates = list(raw_cube_path.glob(f"*{fits_id}*.fits"))
-                if not raw_candidates:
-                    raise FileNotFoundError(f"No raw FITS file found for ID {fits_id}")
-                raw_fits = raw_candidates[0]
-                
-                with fits.open(raw_fits) as hdul_raw:
-                    raw_header = hdul_raw[0].header
-                    d_imrang = raw_header.get("D_IMRANG", np.nan)
-                    ret_ang1 = raw_header.get("RET-ANG1", np.nan)
-
-                # round d_imrang to nearest 0.5
-                d_imrang = (np.round(d_imrang * 2) / 2)
+                # round d_imrang to nearest 0.5 --im gonna not do this as of 2/19/2025
+                # d_imrang = (np.round(d_imrang * 2) / 2)
 
                 # calculate single sum and normalized single difference
                 single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff(fits_file, wavelength_bin, aperture_l=aperture_l, aperture_r=aperture_r)
@@ -281,7 +295,7 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
                 bins = wavelength_bins
                 
                 # write to csv file
-                f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {single_sum}, {single_diff}, {LCOUNTS}, {RCOUNTS}, {sum_std}, {diff_std}, {bins[wavelength_bin]}\n")
+                f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {ret_pos1}, {single_sum}, {single_diff}, {LCOUNTS}, {RCOUNTS}, {sum_std}, {diff_std}, {bins[wavelength_bin]}\n")
 
             except Exception as e:
                 print(f"Error processing {fits_file}: {e}")
