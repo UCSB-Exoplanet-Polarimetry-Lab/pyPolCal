@@ -165,30 +165,27 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
     return (single_sum, single_diff, left_counts, right_counts, sum_std, diff_std)
 
 
-def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_path,centroid_guesses, box_size,wavelength_bin,aperture_radii=None,bkgd_annuli_radii=None,auto_annuli=False, plot_every_x=None, max_fwhm=None):
+def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_guesses, box_size,wavelength_bin, raw_cube_path=None,aperture_radii=None,bkgd_annuli_radii=None,auto_annuli=False, plot_every_x=None, max_fwhm=None):
     """
     
-    Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
-    single sum, single difference, LCOUNTS, RCOUNTS, difference std,
+    Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle without correcting for synchro ADI), 
+    RET-POS1 (actual HWP angle), single sum, single difference, LCOUNTS, RCOUNTS, difference std,
     sum std, and wavelength values for a wavelength bin from each fits cube in the directory.
-    Default HWP order and deletion works for future double difference calculation. Masks all pixels above 40,000 counts to correct
-    for detector nonlinearity.
+    Default HWP order and deletion works for future double difference calculation. 
 
-    FITS parameters are extracted from raw files, while single sum and difference are calculated using the
-    fits cube data and the defined rectangular apertures.
+    Single sum and difference are calculated using aperture photometry. You can either
+    fit for apertures using 3X the PSF or provide fixed ones. There are a few things you 
+    need to provide to do aperture photometry, and there are a few options, see parameters.
     If the necessary header keywords are not present, the values will be set to NaN.
 
-    Note - This function assumes that the raw and extracted cubes have the same number in the filepath. If
-    you processed your cubes in the CHARIS DPP, this is not the case. 
+    For the raw files- this function assumes that the raw files have the same 8-digit ID as either the processed cubes
+    filename or 'ORIGNAME' keyword, so make sure you didn't rename your raw files.
     
     Parameters
     -----------
 
     cube_directory_path : str or Path
         Path to the directory containing CHARIS fits cubes.
-        
-    raw_cube_path : str or Path
-        Path to the directory containing the matching raw CHARIS FITS files.
 
     output_csv_path : str or Path
         Path where the output csv will be created.
@@ -206,7 +203,10 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
     wavelength_bin : int
         Index of the wavelength bin to analyze (0-based).
 
-    aperture_radii : list or np.ndarray
+    raw_cube_path : str or Path, optional
+        Path to the directory containing the matching raw CHARIS FITS files.
+
+    aperture_radii : list or np.ndarray, optional
         Radii to use for the circular apertures. [L,R] If None, will be calculated as 3*FWHM of each PSF.
 
     hwp_order: list or np.ndarray, optional
@@ -265,35 +265,41 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
     # prepare output csv file
     output_csv_path = Path(output_csv_path)
     with open(output_csv_path, 'w') as f:
-        f.write("filepath,D_IMRANG,RET-ANG1,single_sum,single_diff,LCOUNTS,RCOUNTS,sum_std,diff_std,p,a,wavelength_bin\n")
+        f.write("filepath,D_IMRANG,RET-ANG1,RET-POS1,single_sum,single_diff,LCOUNTS,RCOUNTS,sum_std,diff_std,p,a,wavelength_bin\n")
 
         # iterate over all fits files in the directory
         for idx,fits_file in enumerate(sorted(cube_directory_path.glob('*.fits'))):
             try:
 
-                # check if corresponding raw fits file exists
-                match = re.search(r"(\d{8})", fits_file.name)
-                if not match:
-                    with fits.open(fits_file) as hdul_secondary:
-                        header_secondary = hdul_secondary[0].header
-                        raw_filename = header_secondary.get('ORIGNAME',None)
-                        if raw_filename:
-                            m = re.search(r"(\d{8})", raw_filename)
-                            if m:
-                                match = m
-                if match is None:
-                    raise ValueError(f"Could not extract 8-digit ID from filename {fits_file.name}")
-                fits_id = match.group(1)
-                raw_candidates = list(raw_cube_path.glob(f"*{fits_id}*.fits"))
-                if not raw_candidates:
-                    raise FileNotFoundError(f"No raw FITS file found for ID {fits_id}")
-                raw_fits = raw_candidates[0]
-                # extract ret and imr ang
-                with fits.open(raw_fits) as hdul_raw:
-                    raw_header = hdul_raw[0].header
-                    d_imrang = raw_header.get("D_IMRANG", np.nan)
-                    ret_ang1 = raw_header.get("RET-POS1", np.nan) # changed to ret pos 1 to correct for synchro adi
-
+                if raw_cube_path:
+                    # check if corresponding raw fits file exists
+                    match = re.search(r"(\d{8})", fits_file.name)
+                    if not match:
+                        # first try to grab from origname keyword
+                        origname = fits.getheader(fits_file, 0).get('ORIGNAME', None)
+                        if origname:
+                            match = re.search(r"(\d{8})", origname)
+                        if not match:
+                            raise ValueError(f"Could not extract 8-digit ID from filename {fits_file.name} to match raw files. Maybe you renamed your raw files?")
+                    fits_id = match.group(1)
+                    raw_candidates = list(raw_cube_path.glob(f"*{fits_id}*.fits"))
+                    if not raw_candidates:
+                        raise FileNotFoundError(f"No raw FITS file found for ID {fits_id}")
+                    raw_fits = raw_candidates[0]
+                    
+                    with fits.open(raw_fits) as hdul_raw:
+                        raw_header = hdul_raw[0].header
+                        d_imrang = raw_header.get("D_IMRANG", np.nan)
+                        ret_ang1 = raw_header.get("RET-ANG1", np.nan)
+                        ret_pos1 = raw_header.get("RET-POS1", np.nan)
+                else: # if no specified raw files, grab from extension 3
+                    with fits.open(fits_file) as hdul:
+                        extension_3 = hdul[3].header
+                        if not extension_3:
+                            raise ValueError(f"Could not find extension 3 in {fits_file.name}. You may be using frames processed in the DPP, which requires you to provide a raw directory.")
+                        ret_ang1 = extension_3['RET-ANG1']
+                        ret_pos1 = extension_3['RET-POS1']
+                        d_imrang = extension_3['D_IMRANG']
                 # extract image data, parang, and altitude
                 with fits.open(fits_file) as hdul:
                     cube_header = hdul[0].header
@@ -339,7 +345,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, raw_cube_path, output_csv_pa
                 bins = wavelength_bins
                 
                 # write to csv file
-                f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {single_sum}, {single_diff}, {LCOUNTS}, {RCOUNTS}, {sum_std}, {diff_std},{d_parang},{d_alt}, {bins[wavelength_bin]}\n")
+                f.write(f"{fits_file}, {d_imrang}, {ret_ang1}, {ret_pos1}, {single_sum}, {single_diff}, {LCOUNTS}, {RCOUNTS}, {sum_std}, {diff_std},{d_parang},{d_alt}, {bins[wavelength_bin]}\n")
 
                 if plot_every_x:
                     if idx % plot_every_x == 0:  # plot every xth file
