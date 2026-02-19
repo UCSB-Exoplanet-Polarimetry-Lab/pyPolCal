@@ -194,8 +194,8 @@ def arr_csv_HWP(csv_path, hwp_order, todelete=None, new_csv_path=None):
 
 
 def write_fits_info_to_csv(cube_directory_path, output_csv_path, wavelength_bin, raw_cube_path=None, hwp_order=[0,45,11.25,56.25,22.5,67.5,33.75,78.75],hwp_angles_to_delete=[90],aperture_l=charis_aperture_l, aperture_r=charis_aperture_r):
-    """Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle), 
-    single sum, single difference, LCOUNTS, RCOUNTS, difference std,
+    """Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle without correcting for synchro ADI), 
+    RET-POS1 (actual HWP angle), single sum, single difference, LCOUNTS, RCOUNTS, difference std,
     sum std, and wavelength values for a wavelength bin from each fits cube in the directory.
     Default HWP order and deletion works for future double difference calculation. 
 
@@ -355,7 +355,7 @@ def read_csv(file_path, mode= 'standard'):
     configuration_list = []
     for index, row in df.iterrows():
         # Extracting values from relevant columns
-        hwp_theta = row["RET-ANG1"]
+        hwp_theta = row["RET-POS1"]
         imr_theta = row["D_IMRANG"]
         if mode == 'wavelength': # add wavelength
             wavelength = row["wavelength_bin"]
