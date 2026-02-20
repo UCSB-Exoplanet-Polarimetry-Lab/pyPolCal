@@ -250,7 +250,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
     
     # check for valid file paths
     cube_directory_path = Path(cube_directory_path)
-    raw_cube_path = Path(raw_cube_path)
+  
     output_csv_path = Path(output_csv_path)
 
     if not cube_directory_path.is_dir():
@@ -272,6 +272,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
             try:
 
                 if raw_cube_path:
+                    raw_cube_path = Path(raw_cube_path)
                     # check if corresponding raw fits file exists
                     match = re.search(r"(\d{8})", fits_file.name)
                     if not match:

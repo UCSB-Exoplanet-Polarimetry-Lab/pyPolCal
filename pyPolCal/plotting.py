@@ -97,6 +97,15 @@ def plot_data_and_model(interleaved_values, model,
     dd_by_theta = {}
     ds_by_theta = {}
 
+    # Sanity check: many callers provide one configuration per frame and plotting assumes
+    # two configuration entries per frame (diff and sum). Ensure lengths align so we don't
+    # silently mis-index. If mismatch, raise with actionable guidance.
+    if len(configuration_list) != 2 * len(dd_values):
+        raise ValueError(
+            f"configuration_list length ({len(configuration_list)}) does not equal 2 * number of data rows ({2 * len(dd_values)}). "
+            "read_csv should return two configuration entries per frame (diff and sum) or adjust the plotting call."
+        )
+
     for i, config in enumerate(configuration_list[::2]):
         hwp_theta = config["hwp"]["theta"]
         imr_theta = round(config["image_rotator"]["theta"], 1)
@@ -358,6 +367,13 @@ def plot_data_and_model_x_imr(interleaved_values, model,
     ds_by_theta = {}
    
     
+    # Sanity check for expected duplicated configurations (diff+sum per frame)
+    if len(configuration_list) != 2 * len(dd_values):
+        raise ValueError(
+            f"configuration_list length ({len(configuration_list)}) does not equal 2 * number of data rows ({2 * len(dd_values)}). "
+            "read_csv should return two configuration entries per frame (diff and sum) or adjust the plotting call."
+        )
+
     for i, config in enumerate(configuration_list[::2]):
         imr_theta = config["image_rotator"]["theta"]
         hwp_theta = config["hwp"]["theta"]
@@ -496,9 +512,28 @@ def plot_data_and_model_alt(interleaved_values, model,
     dd_model = model[::2]
     ds_model = model[1::2]
 
+    # convert RET-POS1 to RET-ANG1 to account for hwp tracking laws
+    for i, config in enumerate(configuration_list):
+        ret_pos1 = config["hwp"]["theta"]
+        alt = config["altitude_rot"]["pa"]
+        parang = config["parang_rot"]["pa"]
+        # Apply the conversion formula
+        ret_ang1 = -0.5 * parang - alt + ret_pos1
+        # Store the converted value back into the configuration
+        configuration_list[i]["hwp"]["theta"] = ret_ang1
+
     # Group by HWP theta
     dd_by_hwp = {}
     ds_by_hwp = {}
+
+
+
+    # Sanity check for expected duplicated configurations (diff+sum per frame)
+    if len(configuration_list) != 2 * len(dd_values):
+        raise ValueError(
+            f"configuration_list length ({len(configuration_list)}) does not equal 2 * number of data rows ({2 * len(dd_values)}). "
+            "read_csv should return two configuration entries per frame (diff and sum) or adjust the plotting call."
+        )
 
     for i, config in enumerate(configuration_list[::2]):
         hwp_theta = round(config["hwp"]["theta"], 1)
@@ -807,6 +842,13 @@ def plot_mcmc_fits_double_diff_sum(
     # Group by IMR theta
     dd_by_theta = {}
     ds_by_theta = {}
+
+    # Sanity check for expected duplicated configurations (diff+sum per frame)
+    if len(configuration_list) != 2 * len(dd_values):
+        raise ValueError(
+            f"configuration_list length ({len(configuration_list)}) does not equal 2 * number of data rows ({2 * len(dd_values)}). "
+            "read_csv should return two configuration entries per frame (diff and sum) or adjust the plotting call."
+        )
 
     for i, config in enumerate(configuration_list[::2]):
         hwp_theta = config["hwp"]["theta"]

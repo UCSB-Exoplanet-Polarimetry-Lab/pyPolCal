@@ -53,7 +53,7 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin, aperture_l=charis_apertu
                 (R + L)
             [1] single_diff : float
                 Single difference of left and right beam apertures:
-                (R - L) / (R + L)
+                (R - L) 
             [2] left_counts : float
                 Left beam aperture counts.
             [3] right_counts : float
@@ -70,8 +70,8 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin, aperture_l=charis_apertu
         raise FileNotFoundError(f"File not found: {fits_cube_path}")
     
     # retrieve fits cube data
-    hdul = fits.open(fits_cube_path)
-    cube_data = hdul[1].data
+    with fits.open(fits_cube_path) as hdul:
+        cube_data = hdul[1].data
 
     # check if data is a 3d cube (wavelength, y, x)
 
@@ -235,7 +235,6 @@ def write_fits_info_to_csv(cube_directory_path, output_csv_path, wavelength_bin,
     """
     # check for valid file paths
     cube_directory_path = Path(cube_directory_path)
-    raw_cube_path = Path(raw_cube_path)
     output_csv_path = Path(output_csv_path)
 
     if not cube_directory_path.is_dir():
@@ -256,6 +255,7 @@ def write_fits_info_to_csv(cube_directory_path, output_csv_path, wavelength_bin,
         for fits_file in sorted(cube_directory_path.glob('*.fits')):
             try:
                 if raw_cube_path:
+                    raw_cube_path = Path(raw_cube_path)
                     # check if corresponding raw fits file exists
                     match = re.search(r"(\d{8})", fits_file.name)
                     if not match:

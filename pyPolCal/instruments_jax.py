@@ -750,6 +750,13 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     dd_by_theta = {}
     ds_by_theta = {}
 
+    # Sanity check for duplicated configuration entries (diff+sum per frame)
+    if len(configuration_list) != 2 * len(interleaved_values[::2]):
+        raise ValueError(
+            f"configuration_list length ({len(configuration_list)}) does not equal 2 * number of data rows ({2 * len(interleaved_values[::2])}). "
+            "read_csv should return two configuration entries per frame (diff and sum) or adjust the caller."
+        )
+
     for i, config in enumerate(configuration_list[::2]):
         hwp_theta = config["hwp"]["theta"]
         imr_theta = round(config["image_rotator"]["theta"], 1)
