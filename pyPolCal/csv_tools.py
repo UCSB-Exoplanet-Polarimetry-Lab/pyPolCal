@@ -93,7 +93,7 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin, aperture_l=charis_apertu
 
     # calculate single difference and sum
     single_sum = phot_rbeam['aperture_sum'][0] + phot_lbeam['aperture_sum'][0]
-    single_diff =  (phot_lbeam['aperture_sum'][0] - phot_rbeam['aperture_sum'][0]) 
+    single_diff =  (phot_lbeam['aperture_sum'][0] -phot_rbeam['aperture_sum'][0]) 
 
     # get left and right counts
     left_counts = phot_lbeam['aperture_sum'][0]
