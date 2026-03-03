@@ -18,6 +18,7 @@ import pandas as pd
 import re
 from pyPolCal.constants import wavelength_bins, charis_aperture_l, charis_aperture_r
 import json
+import copy
 
 ###############################################################
 ###### Functions related to reading/writing in .csv values ####
@@ -140,54 +141,69 @@ def fix_hwp_angles(csv_file_path, nderotator=8):
 
     print(f"Fixed HWP angles saved to {fixed_csv_path}")
 
+import pandas as pd
+import numpy as np
+
+import pandas as pd
+import numpy as np
+
 def arr_csv_HWP(csv_path, hwp_order, todelete=None, new_csv_path=None):
-    """Arranges CSVs by a custom HWP order. Deletes selected angles.
+    """Arranges CSVs by a custom HWP order, removes blank angles, and preserves cycles."""
     
-    Parameters
-    -----------
-    csv_path: str or Path
-        CSV containing relevant headers, can be obtained from
-        write_fits_info_to_csv().
-    hwp_order: list or np.ndarray
-        List of desired HWP order. 
-    todelete: list or np.ndarray, optional
-        Optional list of HWP angles to delete.
-    new_csv_path: str or Path, optional
-        Optional path to create the new csv. If set to None,
-        the csv will be edited in place.
-    
-    Returns
-    ---------
-    df: Pandas DataFrame
-        Returns DataFrame for visual inspection of csv changes.
-        
-    """
-    hwp_order = np.array(hwp_order)
-
-    # Load to a DF and sort
+    # Load to a DF
     df = pd.read_csv(csv_path)
-    hwp_angles = df['RET-ANG1']
-    if todelete:
-        todelete = np.array(todelete)
-        indices = np.where(np.isin(df['RET-ANG1'],todelete))[0]
-        df = df.drop(indices)
 
-    # Ensure the pattern loops correctly
-    npattern = len(hwp_angles) // len(hwp_order)
-    remainder = len(hwp_angles) % len(hwp_order)
-    hwp_pattern = np.tile(hwp_order,npattern)
-    hwp_pattern = np.concatenate((hwp_pattern,hwp_order[:remainder]))
-    
-    # Modify the DF
-    df["RET-ANG1"] = pd.Categorical(df['RET-ANG1'],categories=hwp_order,ordered=True)
-    df = df.sort_values(by=['D_IMRANG','RET-ANG1'])
+    if 'D_IMRANG' in df.columns:
+        df['D_IMRANG'] = pd.to_numeric(df['D_IMRANG'], errors='coerce')
+    df['RET-ANG1'] = pd.to_numeric(df['RET-ANG1'], errors='coerce')
 
-    if new_csv_path:
-        df.to_csv(new_csv_path,index=False)
+    # Delete blank/NaN RET-ANG1 values
+    missing_angles = df[df['RET-ANG1'].isna()]
+    if not missing_angles.empty:
+        print(f"WARNING: Found {len(missing_angles)} row(s) with a blank or invalid RET-ANG1. Deleting them!")
+        
+        # Print exactly which files are getting nuked
+        if 'filepath' in df.columns:
+            for bad_file in df.loc[df['RET-ANG1'].isna(), 'filepath']:
+                print(f"   -> Dropped: {bad_file}")
+        else:
+            print(f"   -> Dropped row indices: {missing_angles.index.tolist()}")
+            
+        # Drop the offending rows and reset index
+        df = df.dropna(subset=['RET-ANG1'])
+        df = df.reset_index(drop=True)
+
+    # Drop unwanted angles 
+    if todelete is not None:
+        df = df[~df['RET-ANG1'].isin(todelete)]
+        df = df.reset_index(drop=True)
+
+    # Assign "cycle blocks"
+    if 'D_IMRANG' in df.columns and df['D_IMRANG'].notna().any():
+        # Safely round to nearest 0.5 
+        df['imr_round'] = (df['D_IMRANG'] * 2).round() / 2
+
+        # Apply the custom Double Difference categorical order on a helper column
+        df['RET_ANG_cat'] = pd.Categorical(df['RET-ANG1'], categories=hwp_order, ordered=True)
+
+        # Sort by IMR group then by categorical HWP angle
+        df = df.sort_values(by=['imr_round', 'RET_ANG_cat'])
+
+        # Drop helper columns
+        df = df.drop(columns=['imr_round', 'RET_ANG_cat'])
     else:
-        df.to_csv(csv_path,index=False)
-    return df
+        # Fallback to original index-chunking behavior when no IMR information is present
+        cycle_length = len(hwp_order)
+        df['cycle_id'] = np.arange(len(df)) // cycle_length
+        df['RET-ANG1'] = pd.Categorical(df['RET-ANG1'], categories=hwp_order, ordered=True)
+        df = df.sort_values(by=['cycle_id', 'RET-ANG1'])
+        df = df.drop(columns=['cycle_id'])
 
+    # Save
+    save_path = new_csv_path if new_csv_path else csv_path
+    df.to_csv(save_path, index=False)
+    
+    return df
     
 
 
@@ -241,8 +257,6 @@ def write_fits_info_to_csv(cube_directory_path, output_csv_path, wavelength_bin,
         raise NotADirectoryError(f"Directory not found: {cube_directory_path}")
     if output_csv_path.suffix != '.csv':
         raise ValueError(f"Output path must be a CSV file, got {output_csv_path}")
-    if not raw_cube_path.is_dir():
-        raise NotADirectoryError(f"Raw cube directory does not exist: {raw_cube_path}")
     if wavelength_bin > 21:
         raise ValueError(f"This function is currently only compatible with lowres mode, with 22 wavelength bins.")
     
@@ -255,7 +269,10 @@ def write_fits_info_to_csv(cube_directory_path, output_csv_path, wavelength_bin,
         for fits_file in sorted(cube_directory_path.glob('*.fits')):
             try:
                 if raw_cube_path:
+                    
                     raw_cube_path = Path(raw_cube_path)
+                    if not raw_cube_path.is_dir():
+                        raise NotADirectoryError(f"Raw cube directory is not a directory: {raw_cube_path}")
                     # check if corresponding raw fits file exists
                     match = re.search(r"(\d{8})", fits_file.name)
                     if not match:
@@ -281,14 +298,15 @@ def write_fits_info_to_csv(cube_directory_path, output_csv_path, wavelength_bin,
                         extension_3 = hdul[3].header
                         if not extension_3:
                             raise ValueError(f"Could not find extension 3 in {fits_file.name}. You may be using frames processed in the DPP, which requires you to provide a raw directory.")
-                        ret_ang1 = extension_3['RET-ANG1']
-                        ret_pos1 = extension_3['RET-POS1']
-                        d_imrang = extension_3['D_IMRANG']
+                        # use .get to avoid KeyError if header keywords are missing
+                        ret_ang1 = extension_3.get('RET-ANG1', np.nan)
+                        ret_pos1 = extension_3.get('RET-POS1', np.nan)
+                        d_imrang = extension_3.get('D_IMRANG', np.nan)
 
                 # round d_imrang to nearest 0.5 --im gonna not do this as of 2/19/2025
-                # d_imrang = (np.round(d_imrang * 2) / 2)
+                #d_imrang = (np.round(d_imrang * 2) / 2)
 
-                # calculate single sum and normalized single difference
+                # calculate single sum and single difference
                 single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff(fits_file, wavelength_bin, aperture_l=aperture_l, aperture_r=aperture_r)
 
                 # wavelength bins for lowres mode
@@ -340,10 +358,13 @@ def read_csv(file_path, mode= 'standard'):
     
     df = pd.read_csv(file_path)
     
-    # Convert relevant columns to float (handling possible conversion errors)
-    for col in ["RET-ANG1", "D_IMRANG"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible
-
+    # Convert relevant columns to float 
+    if mode == 'standard':
+        for col in ["RET-ANG1", "D_IMRANG"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible
+    else:
+        for col in ["RET-POS1", "D_IMRANG"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible
 
     # Interleave values from "diff" and "sum"
     interleaved_values = np.ravel(np.column_stack((df["single_diff"].values, df["single_sum"].values)))
@@ -355,8 +376,12 @@ def read_csv(file_path, mode= 'standard'):
     configuration_list = []
     for index, row in df.iterrows():
         # Extracting values from relevant columns
-        hwp_theta = row["RET-POS1"]
+        if mode== 'standard':
+            hwp_theta = row["RET-ANG1"] # now im only using RET-ANG1 for internal calibrations
+        else:
+            hwp_theta = row["RET-POS1"] # for on sky data, ret-pos1 accounts for hwp tracking laws, but breaks for internal
         imr_theta = row["D_IMRANG"]
+
         if mode == 'wavelength': # add wavelength
             wavelength = row["wavelength_bin"]
             # Building dictionary with wavelength
@@ -392,9 +417,9 @@ def read_csv(file_path, mode= 'standard'):
                 "hwp": {"theta": hwp_theta},
                 "image_rotator": {"theta": imr_theta}
             }
-
-        # Append two configurations for diff and sum
-        configuration_list.append(row_data)
+        # Append two configurations for diff and sum (one for diff, one for sum)
+        # Use a deepcopy to ensure callers can mutate one entry safely
+        configuration_list.append(copy.deepcopy(row_data))
     if mode == 'wavelength':
         return interleaved_values, interleaved_stds, configuration_list
     else:

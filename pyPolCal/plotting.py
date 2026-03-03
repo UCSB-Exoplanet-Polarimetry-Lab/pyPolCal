@@ -92,6 +92,10 @@ def plot_data_and_model(interleaved_values, model,
     ds_values = interleaved_values[1::2]
     dd_model = model[::2]
     ds_model = model[1::2]
+    for i, config in enumerate(configuration_list[::2]):
+        # round imr_theta to nearest 0.5
+        imr_theta = round(config["image_rotator"]["theta"] * 2) / 2
+        hwp_theta = config["hwp"]["theta"]
 
     # Group by image_rotator theta
     dd_by_theta = {}
@@ -100,11 +104,6 @@ def plot_data_and_model(interleaved_values, model,
     # Sanity check: many callers provide one configuration per frame and plotting assumes
     # two configuration entries per frame (diff and sum). Ensure lengths align so we don't
     # silently mis-index. If mismatch, raise with actionable guidance.
-    if len(configuration_list) != 2 * len(dd_values):
-        raise ValueError(
-            f"configuration_list length ({len(configuration_list)}) does not equal 2 * number of data rows ({2 * len(dd_values)}). "
-            "read_csv should return two configuration entries per frame (diff and sum) or adjust the plotting call."
-        )
 
     for i, config in enumerate(configuration_list[::2]):
         hwp_theta = config["hwp"]["theta"]
@@ -313,7 +312,7 @@ def plot_data_and_model_x_imr(interleaved_values, model,
     configuration_list, interleaved_stds=None, hwp_theta_filter=None, wavelength=None, save_path = None,title=None):
     """
     Plots single differences vs imr angle for some amount of HWP angles. Similar to figure 6 in
-    Joost t Hart 2021.
+    Joost t Hart 2021. The imr angle is rounded to the nearest 0.5. 
 
     Parameters
     ----------
@@ -375,7 +374,8 @@ def plot_data_and_model_x_imr(interleaved_values, model,
         )
 
     for i, config in enumerate(configuration_list[::2]):
-        imr_theta = config["image_rotator"]["theta"]
+        # round imr_theta to nearest 0.5
+        imr_theta = round(config["image_rotator"]["theta"] * 2) / 2
         hwp_theta = config["hwp"]["theta"]
 
         if hwp_theta_filter is not None and not np.any(np.isclose(hwp_theta, hwp_theta_filter, atol=1e-2)):

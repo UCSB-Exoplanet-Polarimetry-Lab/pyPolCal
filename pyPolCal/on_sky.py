@@ -257,8 +257,6 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
         raise NotADirectoryError(f"Directory not found: {cube_directory_path}")
     if output_csv_path.suffix != '.csv':
         raise ValueError(f"Output path must be a CSV file, got {output_csv_path}")
-    if not raw_cube_path.is_dir():
-        raise NotADirectoryError(f"Raw cube directory does not exist: {raw_cube_path}")
     if wavelength_bin > 21:
         raise ValueError(f"This function is currently only compatible with lowres mode, with 22 wavelength bins.")
     
@@ -273,6 +271,8 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
 
                 if raw_cube_path:
                     raw_cube_path = Path(raw_cube_path)
+                    if not raw_cube_path.is_dir():
+                        raise NotADirectoryError(f"Raw cube directory is not a directory: {raw_cube_path}")
                     # check if corresponding raw fits file exists
                     match = re.search(r"(\d{8})", fits_file.name)
                     if not match:
