@@ -216,7 +216,8 @@ def build_double_differences_and_sums(differences, sums):
 def process_model(model_intensities):
     """
     Processes the model intensities to compute double differences.
-    There is this strange thing here where we take the negative of the interleaved values.
+    We used to just take the negative of the interleaved values, but this is 
+    equal to a sign flip from the calibration polarizer, so I changed to that.
     
     Parameters
     ----------
@@ -244,7 +245,7 @@ def process_model(model_intensities):
          
         # NOTE: Subtracting same FLC state orders (A - B) as Miles
     # Take the negative of this as was done before
-    interleaved_values = -interleaved_values
+    interleaved_values = interleaved_values
     # Extracting differences (done this way for easy reversal to old format of interleaving)
     return interleaved_values
 def process_dataset(input_dataset): 
