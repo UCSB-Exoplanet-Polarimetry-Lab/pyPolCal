@@ -188,7 +188,7 @@ def parse_configuration(configuration):
 
 def build_differences_and_sums(intensities, normalized=False):
     '''
-    Assume that the input intensities are organized in pairs. Such that
+    Assume that the input intensities are organized in pairs. 
     '''
     # Making sure that intensities is a numpy array
     intensities = np.array(intensities)
@@ -202,21 +202,21 @@ def build_differences_and_sums(intensities, normalized=False):
 
 def build_double_differences_and_sums(differences, sums):
     '''
-    Assume that the input intensities are organized in pairs. Such that
+    Assume that the input intensities are organized in pairs. Double differences are normalized.
     '''
     # Making sure that differences and sums are numpy arrays
     differences = np.array(differences)
     sums = np.array(sums)
 
-    double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
-    double_sums = (differences[::2]+differences[1::2])/(sums[::2]+sums[1::2])
+    norm_double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
+    double_sums = 0.5*(sums[::2]+sums[1::2])
 
-    return double_differences, double_sums
+    return norm_double_differences, double_sums
 
 def process_model(model_intensities):
     """
     Processes the model intensities to compute double differences.
-    
+    There is this strange thing here where we take the negative of the interleaved values.
     
     Parameters
     ----------
@@ -254,7 +254,7 @@ def process_dataset(input_dataset):
     differences = input_dataset[::2]
    
 
-
+    
     double_differences, double_sums = build_double_differences_and_sums(differences, sums)
 
     interleaved_values = np.ravel(np.column_stack((double_differences, double_sums)))
@@ -265,7 +265,9 @@ def process_dataset(input_dataset):
 
 def process_errors(input_errors, input_dataset): 
     """
-    Propagates errors through the same transformations as `process_dataset`.
+    Propagates errors through the same transformations as `process_dataset`. The output quantities
+    here are kind of different, as the double difference error is for normalized double differences while the 
+    double sum error is for just the double sum.
     
     Args:
         input_errors (numpy array): Original errors in intensities.
@@ -296,11 +298,11 @@ def process_errors(input_errors, input_dataset):
     squared_sum_errors_sqrt = np.sqrt(sums_errors[::2]**2+sums_errors[1::2]**2)
     # using hypot for numerical stability
     num = np.hypot(double_sums*squared_diff_errors_sqrt,differences2*squared_sum_errors_sqrt)
-    # Compute propagated errors for double differences
+    # Compute propagated errors for normalized double differences
     double_differences_errors = num/double_sums**2
 
     # Compute propagated errors for double sums
-    double_sums_errors = np.hypot(sums_errors[::2],sums_errors[1::2])
+    double_sums_errors = np.hypot(sums_errors[::2],sums_errors[1::2]) 
 
     # Interleave errors to maintain order
     interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
