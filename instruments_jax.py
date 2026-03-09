@@ -726,11 +726,26 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
     import numpy as np
     import matplotlib.pyplot as plt
 
-    # Accept either a single model or a list of models
-    if isinstance(model, np.ndarray) and model.ndim == 1:
-        model_outputs = [model]
+    # Accept a single model output, a 2D array of model outputs, or a list of outputs.
+    if isinstance(model, (list, tuple)):
+        if len(model) == 0:
+            raise ValueError("`model` was empty. Provide at least one model output.")
+        first_item = np.asarray(model[0])
+        if first_item.ndim == 0:
+            model_outputs = [np.asarray(model)]
+        else:
+            model_outputs = [np.asarray(m) for m in model]
     else:
-        model_outputs = model
+        model_arr = np.asarray(model)
+        if model_arr.ndim == 1:
+            model_outputs = [model_arr]
+        elif model_arr.ndim == 2:
+            model_outputs = [row for row in model_arr]
+        else:
+            raise ValueError(
+                "`model` must be a 1D model output, a 2D array of model outputs, "
+                "or a list/tuple of 1D model outputs."
+            )
 
     # Calculate double differences and sums from interleaved single differences
     interleaved_stds = process_errors(interleaved_stds, interleaved_values)
@@ -754,39 +769,89 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
             continue
 
         if imr_theta not in dd_by_theta:
-            dd_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": []}
-            ds_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": []}
+            dd_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": [], "indices": []}
+            ds_by_theta[imr_theta] = {"hwp_theta": [], "values": [], "stds": [], "indices": []}
 
         dd_by_theta[imr_theta]["hwp_theta"].append(hwp_theta)
         dd_by_theta[imr_theta]["values"].append(dd_values[i])
         dd_by_theta[imr_theta]["stds"].append(dd_stds[i])
+        dd_by_theta[imr_theta]["indices"].append(i)
 
         ds_by_theta[imr_theta]["hwp_theta"].append(hwp_theta)
         ds_by_theta[imr_theta]["values"].append(ds_values[i])
         ds_by_theta[imr_theta]["stds"].append(ds_stds[i])
+        ds_by_theta[imr_theta]["indices"].append(i)
 
     # Create the plots
     fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True)
 
     # Plot data
+    theta_colors = {}
     for theta in dd_by_theta:
         dd = dd_by_theta[theta]
         ds = ds_by_theta[theta]
-        err = axes[0].errorbar(dd["hwp_theta"], dd["values"], yerr=dd["stds"], fmt='o', label=f"{theta}°")
+
+        dd_hwp = np.asarray(dd["hwp_theta"])
+        ds_hwp = np.asarray(ds["hwp_theta"])
+        dd_order = np.argsort(dd_hwp)
+        ds_order = np.argsort(ds_hwp)
+
+        err = axes[0].errorbar(
+            dd_hwp[dd_order],
+            np.asarray(dd["values"])[dd_order],
+            yerr=np.asarray(dd["stds"])[dd_order],
+            fmt='o',
+            label=f"{theta}°"
+        )
         color = err[0].get_color()
-        axes[1].errorbar(ds["hwp_theta"], ds["values"], yerr=ds["stds"], fmt='o', color=color)
+        theta_colors[theta] = color
+        axes[1].errorbar(
+            ds_hwp[ds_order],
+            np.asarray(ds["values"])[ds_order],
+            yerr=np.asarray(ds["stds"])[ds_order],
+            fmt='o',
+            color=color
+        )
 
     # Plot model outputs
-    for i, model in enumerate(model_outputs):
-        dd_model = model[::2]
-        ds_model = model[1::2]
+    for i, model_values in enumerate(model_outputs):
+        model_values = np.asarray(model_values)
+        dd_model = model_values[::2]
+        ds_model = model_values[1::2]
         alpha = 0.1 if i > 0 else 1.0
+
+        if len(dd_model) < len(dd_values) or len(ds_model) < len(ds_values):
+            raise ValueError(
+                "Model output length does not match the processed dataset length. "
+                "Ensure the same processing (e.g., process_model) is applied."
+            )
 
         for theta in dd_by_theta:
             dd = dd_by_theta[theta]
             ds = ds_by_theta[theta]
-            axes[0].plot(dd["hwp_theta"], dd_model[:len(dd["hwp_theta"])], '-', alpha=alpha)
-            axes[1].plot(ds["hwp_theta"], ds_model[:len(ds["hwp_theta"])], '-', alpha=alpha)
+
+            dd_hwp = np.asarray(dd["hwp_theta"])
+            ds_hwp = np.asarray(ds["hwp_theta"])
+            dd_order = np.argsort(dd_hwp)
+            ds_order = np.argsort(ds_hwp)
+            dd_idx = np.asarray(dd["indices"], dtype=int)
+            ds_idx = np.asarray(ds["indices"], dtype=int)
+            color = theta_colors.get(theta)
+
+            axes[0].plot(
+                dd_hwp[dd_order],
+                dd_model[dd_idx][dd_order],
+                '-',
+                alpha=alpha,
+                color=color
+            )
+            axes[1].plot(
+                ds_hwp[ds_order],
+                ds_model[ds_idx][ds_order],
+                '-',
+                alpha=alpha,
+                color=color
+            )
 
     axes[0].set_xlabel("HWP θ (deg)")
     axes[0].set_ylabel("Double Difference")
@@ -805,5 +870,4 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         plt.savefig(save_path)
 
     plt.show()
-
 

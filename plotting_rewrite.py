@@ -12,6 +12,49 @@ from instruments_jax import (
     model, plot_data_and_model
 )
 
+
+def _normalize_step_range(chain, step_range):
+    nsteps = chain.shape[0]
+    start, end = step_range
+    if end is None:
+        end = nsteps
+    if start >= end or start >= nsteps:
+        raise ValueError(f"Invalid step_range {step_range} for chain with {nsteps} steps.")
+    return start, end
+
+
+def _flatten_chain_with_phi_in_waves(chain, param_names, step_range=(0, None)):
+    start, end = _normalize_step_range(chain, step_range)
+    flat_chain = chain[start:end, :, :].reshape(-1, chain.shape[-1]).copy()
+    for i, name in enumerate(param_names):
+        if ".phi" in name:
+            flat_chain[:, i] = flat_chain[:, i] / (2 * np.pi)
+    return flat_chain
+
+
+def _summary_values(flat_chain_converted, summary_mode="median", num_bins=100):
+    mode_aliases = {
+        "median": "median",
+        "max": "per_parameter_max",
+        "per_parameter_max": "per_parameter_max",
+        "marginal_max": "per_parameter_max",
+    }
+    mode = mode_aliases.get(summary_mode, summary_mode)
+
+    if mode == "median":
+        return np.median(flat_chain_converted, axis=0)
+    if mode == "per_parameter_max":
+        values = []
+        for i in range(flat_chain_converted.shape[1]):
+            hist, bin_edges = np.histogram(flat_chain_converted[:, i], bins=num_bins)
+            max_index = np.argmax(hist)
+            values.append((bin_edges[max_index] + bin_edges[max_index + 1]) / 2)
+        return np.array(values)
+
+    raise ValueError(
+        "summary_mode must be one of: 'median', 'per_parameter_max' (or alias 'max', 'marginal_max')."
+    )
+
 def load_chain_and_labels(h5_filename, txt_filename, include_logf=False):
     base, ext = os.path.splitext(h5_filename)
     h5_copy = base + "_copy" + ext
@@ -47,26 +90,16 @@ def plot_trace(chain, param_names, step_range=(0, None), max_walkers=None):
     plt.tight_layout()
     plt.show()
 
-def plot_corner_flat(chain, param_names, step_range=(0, None), median_or_max="median", num_bins=100):
-    flat_chain = chain[step_range[0]:step_range[1], :, :].reshape(-1, chain.shape[-1])
-    converted_chain = flat_chain.copy()
-
-    for i, name in enumerate(param_names):
-        if ".phi" in name:
-            converted_chain[:, i] = converted_chain[:, i] / (2 * np.pi)
-
-    if median_or_max == "median":
-        truths = np.median(converted_chain, axis=0)
-    elif median_or_max == "max":
-        truths = []
-        for i in range(converted_chain.shape[1]):
-            hist, bin_edges = np.histogram(converted_chain[:, i], bins=num_bins)
-            max_index = np.argmax(hist)
-            max_val = (bin_edges[max_index] + bin_edges[max_index + 1]) / 2
-            truths.append(max_val)
-        truths = np.array(truths)
-    else:
-        raise ValueError("median_or_max must be 'median' or 'max'")
+def plot_corner_flat(
+    chain,
+    param_names,
+    step_range=(0, None),
+    median_or_max="median",
+    num_bins=100,
+    return_truths=False,
+):
+    converted_chain = _flatten_chain_with_phi_in_waves(chain, param_names, step_range=step_range)
+    truths = _summary_values(converted_chain, summary_mode=median_or_max, num_bins=num_bins)
 
     fig = corner.corner(
         converted_chain,
@@ -86,11 +119,23 @@ def plot_corner_flat(chain, param_names, step_range=(0, None), median_or_max="me
     plt.tick_params(axis='y', which='both', pad=5)
     plt.show()
 
-def summarize_posteriors(chain, param_names, system_dict, txt_file_path=None, txt_save_file_path=None, step_range=(0, None)):
+    if return_truths:
+        return truths
+
+def summarize_posteriors(
+    chain,
+    param_names,
+    system_dict,
+    txt_file_path=None,
+    txt_save_file_path=None,
+    step_range=(0, None),
+    summary_mode="median",
+    num_bins=100,
+):
     import instruments_jax as inst
 
     # Flatten MCMC chain
-    flat_chain = chain[step_range[0]:step_range[1], :, :].reshape(-1, chain.shape[-1])
+    flat_chain = _flatten_chain_with_phi_in_waves(chain, param_names, step_range=step_range)
 
     # Generate the base system Mueller matrix from a known full system_dict
     system_mm = inst.generate_system_mueller_matrix(system_dict)
@@ -103,26 +148,36 @@ def summarize_posteriors(chain, param_names, system_dict, txt_file_path=None, tx
     else:
         raise ValueError("You must supply txt_file_path to extract parameter keys.")
 
-    # Compute medians and build filtered parameter dict
-    new_param_values = []
+    selected_values = _summary_values(flat_chain, summary_mode=summary_mode, num_bins=num_bins)
+    std_values = np.std(flat_chain, axis=0)
+
+    # Build filtered parameter dict
     filtered_param_dict = {}
-    for i, name in enumerate(param_names):
-        val = flat_chain[:, i] / (2 * np.pi) if ".phi" in name else flat_chain[:, i]
-        median = np.median(val)
-        std = np.std(val)
-        new_param_values.append(median)
-        print(f"{name} ({'waves' if '.phi' in name else ''}): {median:.5f} ± {std:.5f}")
+    for i, (name, value) in enumerate(zip(param_names, selected_values)):
+        std = std_values[i]
+        units = "waves" if ".phi" in name else ""
+        if summary_mode == "median":
+            print(f"{name} ({units}): {value:.5f} ± {std:.5f}")
+        else:
+            print(f"{name} ({units}) [{summary_mode}]: {value:.5f} (std={std:.5f})")
 
         # Parse component and parameter name
         if "." in name:
             comp, param = name.split(".", 1)
             if comp not in filtered_param_dict:
                 filtered_param_dict[comp] = {}
-            filtered_param_dict[comp][param] = float(median)
+            filtered_param_dict[comp][param] = float(value)
 
     if txt_save_file_path is not None:
         with open(txt_save_file_path, "w") as f:
             json.dump(filtered_param_dict, f, indent=4)
+
+    return {
+        "summary_mode": summary_mode,
+        "fit_dict": filtered_param_dict,
+        "selected_values": selected_values,
+        "std_values": std_values,
+    }
 
 def plot_mcmc_fits_double_diff_sum(
     h5_filename,
