@@ -32,7 +32,7 @@ You can fit either:
 git clone https://github.com/UCSB-Exoplanet-Polarimetry-Lab/pyPolCal.git
 cd pyPolCal
 ```
-3. Install the package and its dependencies. Editable mode (`-e`) is recommended, as it allows you to modify the source code — this is often necessary for this package:
+3. Install the package and its dependencies. Editable mode (`-e`) is recommended, since it allows you to modify the source code. This is sometimes necessary for this package:
 ```bash
 pip install -e .
 ```
