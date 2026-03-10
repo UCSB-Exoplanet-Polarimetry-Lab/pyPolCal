@@ -288,7 +288,7 @@ def logl(p, system_parameters, system_mm, dataset, configuration_list, errors=No
     dataset = copy.deepcopy(processed_dataset)
     
     # Calculate log likelihood
-    if include_sums is True: # take out differences
+    if include_sums is False: # take out differences
         dataset=dataset[::2]
         if errors is not None:
             errors=errors[::2]
@@ -384,7 +384,7 @@ def cost(p, system_parameters, system_mm, dataset, configuration_list, errors=No
 
     dataset = copy.deepcopy(processed_dataset)
     
-    if include_sums is True:
+    if include_sums is False:
         dataset=dataset[::2]
         output_intensities=output_intensities[::2]
         if errors is not None:
