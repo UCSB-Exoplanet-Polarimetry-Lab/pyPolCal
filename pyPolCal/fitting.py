@@ -548,7 +548,6 @@ def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=F
 
         # convert units to percent and calculate residuals
         residuals = obs_diff*100 - modeled_diffs*100
-
         # Calculate s_res
         s_res = np.sqrt(np.sum(residuals**2)/(len(obs_diff)-number_of_fitted_params))
         s_res_by_wavelength.append(s_res)

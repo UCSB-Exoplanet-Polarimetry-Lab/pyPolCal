@@ -384,6 +384,7 @@ def read_csv(file_path, mode= 'standard'):
 
         if mode == 'wavelength': # add wavelength
             wavelength = row["wavelength_bin"]
+            hwp_theta = row["RET-ANG1"]
             # Building dictionary with wavelength
             row_data = {
                 "hwp": {"theta": hwp_theta, "wavelength": wavelength},
