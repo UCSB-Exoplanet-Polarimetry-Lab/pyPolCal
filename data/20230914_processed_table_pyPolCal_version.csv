@@ -1,4 +1,4 @@
-,path,D_IMRANG,FILTER01,OBS-MOD,RET-ANG1,U_FLC,GAIN,EXPTIME,single_diff,diff_std,single_sum,sum_std
+,path,D_IMRANG,FILTER01,OBS-MOD,RET-POS1,U_FLC,GAIN,EXPTIME,diff,diff_std,sum,sum_std
 889,/mnt/userdata/mlucas/20230914_hwp_calib/data/diff/vsync_22:17:21.211385.cam1.A_collapsed_diff.fits,45.0,Open,IPOL,0.0,A,0.105,0.0471744,21922.0,903.4641,33227.0,1150.8439
 94,/mnt/userdata/mlucas/20230914_hwp_calib/data/diff/vsync_22:23:48.873671.cam1.A_collapsed_diff.fits,45.0,625-50,IPOL,0.0,A,0.105,0.0471744,-1080.0,66.22258,1763.5,81.24302
 429,/mnt/userdata/mlucas/20230914_hwp_calib/data/diff/vsync_22:35:33.711720.cam1.A_collapsed_diff.fits,45.0,675-50,IPOL,0.0,A,0.105,0.0471744,-194.0,140.36275,7145.0,271.04364
