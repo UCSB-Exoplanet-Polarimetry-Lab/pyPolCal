@@ -179,7 +179,9 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
     If the necessary header keywords are not present, the values will be set to NaN.
 
     For the raw files- this function assumes that the raw files have the same 8-digit ID as either the processed cubes
-    filename or 'ORIGNAME' keyword, so make sure you didn't rename your raw files.
+    filename or 'ORIGNAME' keyword, so make sure you didn't rename your raw files. If you don't provide raw files, 
+    the function will try to grab the D_IMRANG, RET-ANG1, and RET-POS1 keywords from extension 3 of the processed cube, 
+    which should work for cubes not processed in the DPP. 
     
     Parameters
     -----------
