@@ -378,8 +378,7 @@ def read_csv(file_path, mode= 'standard'):
         # Extracting values from relevant columns
         if mode== 'standard':
             hwp_theta = row["RET-ANG1"] # now im only using RET-ANG1 for internal calibrations
-        else:
-            hwp_theta = row["RET-POS1"] # for on sky data, ret-pos1 accounts for hwp tracking laws, but breaks for internal
+         # for on sky data, ret-pos1 accounts for hwp tracking laws, but breaks for internal
         imr_theta = row["D_IMRANG"]
 
         if mode == 'wavelength': # add wavelength
@@ -392,6 +391,7 @@ def read_csv(file_path, mode= 'standard'):
                 "wollaston": {"wavelength":wavelength}
             }
         elif mode == 'm3':
+            hwp_theta = row["RET-POS1"] # use RET-POS1 for on-sky data since it accounts for hwp tracking laws, but use RET-ANG1 for internal calibrations
             a = row['a']
             p = row['p']
             row_data = {
@@ -402,6 +402,7 @@ def read_csv(file_path, mode= 'standard'):
             }
         elif mode == 'm3_mcmc':
             wavelength = row["wavelength_bin"]
+            hwp_theta = row["RET-POS1"] # use RET-POS1 for on-sky data since it accounts for hwp tracking laws, but use RET-ANG1 for internal calibrations
             a = row['a']
             p = row['p']
             row_data = {
