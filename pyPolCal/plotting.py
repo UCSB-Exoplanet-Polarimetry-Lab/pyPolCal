@@ -519,6 +519,7 @@ def plot_data_and_model_alt(interleaved_values, model,
         parang = config["parang_rot"]["pa"]
         # Apply the conversion formula
         ret_ang1 = -0.5 * parang - alt + ret_pos1
+        print("ret_ang1:", ret_ang1, "ret_pos1:", ret_pos1)
         # Store the converted value back into the configuration
         configuration_list[i]["hwp"]["theta"] = ret_ang1
 
