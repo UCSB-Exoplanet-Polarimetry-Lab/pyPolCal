@@ -28,8 +28,8 @@ import copy
 def single_sum_and_diff(fits_cube_path, wavelength_bin, aperture_l=charis_aperture_l, aperture_r=charis_aperture_r):
     """Calculate single difference and sum between left and right beam 
     rectangular aperture photometry from CHARIS internal calibration
-    fits cubes. Add L/R counts and stds to array. As of 2/18/2026, we have switched to using 
-    L-R for double differences, since we believe this is the correct convention.
+    fits cubes. Add L/R counts and stds to array. As of 3/17/2026, we have switched to using 
+    R-L for double differences, since we (Miles) believe this is the correct convention.
     
     Parameters
     -----------
@@ -93,7 +93,7 @@ def single_sum_and_diff(fits_cube_path, wavelength_bin, aperture_l=charis_apertu
 
     # calculate single difference and sum
     single_sum = phot_rbeam['aperture_sum'][0] + phot_lbeam['aperture_sum'][0]
-    single_diff =  (phot_lbeam['aperture_sum'][0] -phot_rbeam['aperture_sum'][0]) 
+    single_diff =  (phot_rbeam['aperture_sum'][0] -phot_lbeam['aperture_sum'][0]) 
 
     # get left and right counts
     left_counts = phot_lbeam['aperture_sum'][0]
