@@ -518,8 +518,10 @@ def plot_data_and_model_alt(interleaved_values, model,
         alt = config["altitude_rot"]["pa"]
         parang = config["parang_rot"]["pa"]
         # Apply the conversion formula
-        ret_ang1 = -0.5 * parang - alt + ret_pos1
-        print("ret_ang1:", ret_ang1, "ret_pos1:", ret_pos1)
+        ret_ang1_unrounded = -0.5 * parang + alt + ret_pos1
+        print(f"Original RET-POS1: {ret_pos1:.2f}°, Altitude PA: {alt:.2f}°, Parang PA: {parang:.2f}° -> Unrounded RET-ANG1: {ret_ang1_unrounded:.2f}°")
+        # round to the nearest 0.5
+        ret_ang1 = round(ret_ang1_unrounded * 2) / 2
         # Store the converted value back into the configuration
         configuration_list[i]["hwp"]["theta"] = ret_ang1
 
