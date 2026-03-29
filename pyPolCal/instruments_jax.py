@@ -263,7 +263,7 @@ def run_mcmc(
     process_model : callable, optional
         Function to process model outputs before likelihood comparison.
     log_f0 : float, optional
-        Initial value for `log_f` if `include_log_f` is True.
+        Initial value for `log_f` 
     plot : bool, optional
         If True, plots every 100 steps. Only works in .py scripts currently.
     include_sums : bool
@@ -398,6 +398,9 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
      if errors is not None:
          errors = errors[::2]
      model_output = model_output[::2]
+     print("example dataset:", dataset[:15])
+     print("example model:", model_output[:15])
+     print("example errors:", errors[:15] if errors is not None else "No errors")
     if errors is not None:
         sigma2 = errors**2 + jnp.exp(2 * log_f)
         return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
@@ -588,7 +591,7 @@ def build_double_differences_and_sums(differences, sums):
     sums = jnp.array(sums)
 
     double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
-    double_sums = (differences[::2]+differences[1::2])/(sums[::2]+sums[1::2])
+    double_sums = 0.5*(sums[::2]+sums[1::2])
 
     return double_differences, double_sums
 @jit
@@ -628,7 +631,6 @@ def process_model(model_intensities):
          
         # NOTE: Subtracting same FLC state orders (A - B) as Miles
     # Take the negative of this as was done before
-    interleaved_values = -interleaved_values
     # Extracting differences (done this way for easy reversal to old format of interleaving)
     return interleaved_values
 
