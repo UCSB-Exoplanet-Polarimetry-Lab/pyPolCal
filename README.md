@@ -2,8 +2,8 @@
 This Python library provides tools for fitting and visualizing Mueller matrix models for **SCExAO VAMPIRES** and the **SCExAO CHARIS spectropolarimetric mode**. In the future it will be updated for compatibility with other instruments.
 
 You can fit either:
-- A **physically motivated model** 
-- A **direct fit** of retardances and diattenuations.
+- A physically motivated model
+- A direct fit of retardances and diattenuations.
 
 ---
 
@@ -45,7 +45,7 @@ pip install -e .
 pyPolCal/
 │── pyPolCal/       # Package root for pyPolCal
    │── constants.py   # Hard coded constants
-   │── csv_tools.py   # Tools for writing and reading CSV files with FITS info
+   │── csv_tools.py   # Tools for writing and reading CSV files with FITS data
    │── fitting.py     # Tools for fitting the Mueller matrix model
    │── instruments.py     # Wrapper functions for minimize_system_mueller_matrix to fit with one function
    │── instruments_jax.py     # Jax-compatible functions for MCMC
