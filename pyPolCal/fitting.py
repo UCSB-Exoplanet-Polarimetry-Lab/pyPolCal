@@ -163,8 +163,8 @@ def minimize_system_mueller_matrix(p0, system_mm, dataset,
 
         result = minimize(logl, p0_values, 
             args=(p0_keywords, system_mm, dataset, configuration_list, errors,
-                s_in, custom_function, process_dataset, process_errors, process_model,include_sums), 
-                bounds = bounds)
+                s_in, custom_function, process_dataset, process_errors, process_model,include_sums), method='L-BFGS-B',
+            bounds=bounds)
 
 
     elif mode == 'least_squares':
@@ -284,6 +284,7 @@ def logl(p, system_parameters, system_mm, dataset, configuration_list, errors=No
         elif process_errors is None:
             processed_errors = copy.deepcopy(errors)
         errors = copy.deepcopy(processed_errors)
+        
 
     dataset = copy.deepcopy(processed_dataset)
     
