@@ -310,6 +310,9 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
                     d_alt = cube_header.get("ALTITUDE",np.nan)
                     cube_data = hdul[1].data
                     image_data = cube_data[wavelength_bin]
+                    origname = cube_header.get("ORIGNAME", None)
+                    match = re.search(r"(\d{8})", origname)
+                    fits_id = match.group(1)
                 
                 # find centroids of psfs
                 centroids = charis_centroids_one_psf(image_data,centroid_guesses[0],centroid_guesses[1],box_size,wavelength_bin)
@@ -324,6 +327,9 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
                 if aperture_radii is None:
                     fwhm_l = fit_fwhm(image_data,xypos=centroids[0],fit_shape=box_size)
                     fwhm_r = fit_fwhm(image_data,xypos=centroids[1],fit_shape=box_size)
+                    # Force extraction of the float to avoid NumPy 2.0 casting errors
+                    fwhm_l = np.atleast_1d(fwhm_l)[0] 
+                    fwhm_r = np.atleast_1d(fwhm_r)[0]
                     if max_fwhm and fwhm_l > max_fwhm[0]:
                         print(f"Fitted FWHM for left PSF of {fits_id} is {fwhm_l}, which is larger than the maximum allowed {max_fwhm[0]}. Max will be used")
                         fwhm_l = max_fwhm[0]
