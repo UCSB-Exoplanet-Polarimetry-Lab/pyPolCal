@@ -71,7 +71,7 @@ def charis_centroids_one_psf(image_data,initial_guess_l,initial_guess_r,box_size
     return centroid_list
 
 
-def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_r,annulus_l=None,annulus_r=None):
+def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_r,annulus_l=None,annulus_r=None, mask=True):
     """Calculate single difference and sum between left and right beam 
     rectangular aperture photometry from a single psf. Add L/R counts and stds to array.
     Masks all pixels above 40,000 counts to correct
@@ -97,6 +97,9 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
     annulus_r: photutils.aperture.Annulus, optional
         Photutils annulus object for local background subtraction for right Wollaston beam.
         Provide r and l or it will be skipped.
+
+    mask: bool, optional
+        If true, masks all pixels above 40k counts as per Hart 2021.
 
     Returns
     --------
@@ -137,10 +140,15 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
         raise ValueError(f"wavelength_bin must be between 0 and {cube_data.shape[0] - 1}.")
     
     image_data = cube_data[wavelength_bin]
-    mask = image_data > 40000
-    # define apertures perform aperture photometry 
-    phot_lbeam = aperture_photometry(image_data, aperture_l,mask=mask)
-    phot_rbeam = aperture_photometry(image_data, aperture_r,mask=mask)
+    if mask:
+        mask_ = image_data > 40000
+    else:
+        mask_ = None
+      
+
+    # define apertures perform aperture photometry
+    phot_lbeam = aperture_photometry(image_data, aperture_l,mask=mask_)
+    phot_rbeam = aperture_photometry(image_data, aperture_r,mask=mask_)
 
     # get left and right counts
     left_counts = phot_lbeam['aperture_sum'][0]
@@ -165,7 +173,7 @@ def single_sum_and_diff_psf(fits_cube_path, wavelength_bin, aperture_l,aperture_
     return (single_sum, single_diff, left_counts, right_counts, sum_std, diff_std)
 
 
-def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_guesses, box_size,wavelength_bin, raw_cube_path=None,aperture_radii=None,bkgd_annuli_radii=None,auto_annuli=False, plot_every_x=None, max_fwhm=None):
+def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_guesses, box_size,wavelength_bin, raw_cube_path=None,aperture_radii=None,bkgd_annuli_radii=None,auto_annuli=False, plot_every_x=None, max_fwhm=None,mask=False):
     """
     
     Write filepath, D_IMRANG (derotator angle), RET-ANG1 (HWP angle without correcting for synchro ADI), 
@@ -239,6 +247,9 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
         [1] max fwhm right: float
             Maximum FWHM in pixels to accept for the right PSF. If the fitted FWHM is larger than this,
             an error will be raised.
+    
+    mask: bool, optional
+        If true, masks all pixels above 40k counts as per Hart 2021.
 
     Returns
     --------
@@ -310,6 +321,10 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
                     d_alt = cube_header.get("ALTITUDE",np.nan)
                     cube_data = hdul[1].data
                     image_data = cube_data[wavelength_bin]
+                    # warn for saturated pixels
+                    if np.any(image_data > 40000):
+                        number_sat = len(image_data[image_data > 40000])
+                        print(f"Saturated pixels (counts >40k) detected in image data: {number_sat} saturated pixels")
                     origname = cube_header.get("ORIGNAME", None)
                     match = re.search(r"(\d{8})", origname)
                     fits_id = match.group(1)
@@ -346,9 +361,9 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
                 if bkgd_annuli_radii or auto_annuli: 
                     bkgd_annulus_l = CircularAnnulus(centroids[0],int(bkgd_annuli_radii[0][0]),int(bkgd_annuli_radii[0][1]))
                     bkgd_annulus_r = CircularAnnulus(centroids[1],int(bkgd_annuli_radii[1][0]),int(bkgd_annuli_radii[1][1]))
-                    single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff_psf(fits_file,wavelength_bin,aper_l,aper_r,bkgd_annulus_l,bkgd_annulus_r)
+                    single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff_psf(fits_file,wavelength_bin,aper_l,aper_r,bkgd_annulus_l,bkgd_annulus_r, mask=mask)
                 else:
-                    single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff_psf(fits_file,wavelength_bin,aper_l,aper_r)
+                    single_sum, single_diff, LCOUNTS, RCOUNTS, sum_std, diff_std = single_sum_and_diff_psf(fits_file,wavelength_bin,aper_l,aper_r, mask=mask)
 
                 # wavelength bins for lowres mode
                 bins = wavelength_bins
@@ -361,7 +376,7 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
                         fig, ax = plt.subplots(figsize=(10,6))
                         snorm = simple_norm(image_data,'log',)
                         im = ax.imshow(image_data, origin='lower', cmap='inferno',norm=snorm)
-                        mask = image_data > 40000
+                        mask_ = image_data > 40000
                         aper_l.plot(ax,color='white')
                         aper_r.plot(ax,color='white')
                         ax.set_title(f"{fits_id} Wavelength bin: {wavelength_bins[wavelength_bin]} nm")
@@ -369,8 +384,8 @@ def write_fits_info_to_csv_psf(cube_directory_path, output_csv_path,centroid_gue
                             CircularAnnulus(centroids[0],bkgd_annuli_radii[0][0],bkgd_annuli_radii[0][1]).plot(ax,color='white',alpha=0.5)
                             CircularAnnulus(centroids[1],bkgd_annuli_radii[1][0],bkgd_annuli_radii[1][1]).plot(ax,color='white',alpha=0.5)
                         fig.colorbar(im,ax=ax)
-                        ax.imshow(mask, origin='lower', cmap='gray', alpha=0.2, vmin=0, vmax=1)
-                        mask_patch = mpatches.Patch(color='gray', label='Masked Pixels > 40000 counts')
+                        ax.imshow(mask_, origin='lower', cmap='gray', alpha=0.2, vmin=0, vmax=1)
+                        mask_patch = mpatches.Patch(color='gray', label='Saturated Pixels > 40000 counts')
                         ax.legend(handles=[mask_patch])
 
             except Exception as e:
