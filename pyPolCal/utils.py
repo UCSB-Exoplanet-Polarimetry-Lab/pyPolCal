@@ -262,7 +262,6 @@ def process_dataset(input_dataset):
     # Format this into one array.
     return interleaved_values
 
-
 def process_errors(input_errors, input_dataset): 
     """
     Propagates errors through the same transformations as `process_dataset`.
@@ -274,38 +273,95 @@ def process_errors(input_errors, input_dataset):
     Returns:
         numpy array: Propagated errors for double differences and sums.
     """
+    # print("Entered process_errors")
 
     # Ensure input is a NumPy array
     input_errors = np.array(input_errors)
     input_dataset = np.array(input_dataset)
 
+    # Separating out differences, sums, and corresponding errors
+    single_differences = input_dataset[::2]
+    single_sums = input_dataset[1::2]
+    single_difference_errors = input_errors[::2]
+    single_sum_errors = input_errors[1::2]
+
+    # Compute double differences and double sums - changed so that interleaved values are the doubl
+    double_differences_numerators, double_sums_numerators = \
+        build_double_differences_and_sums(single_differences, single_sums, normalized=False)
+    normalized_double_differences, normalized_double_sums = \
+        build_double_differences_and_sums(single_differences, single_sums, normalized=True)
 
     # Compute errors for differences and sums
-    # differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
-    # sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
-    # Extract difference and sum errors
-    differences_errors = input_errors[::2]
-    sums_errors = input_errors[1::2]
-    
-    # Compute single differences and single sums
-    differences = input_dataset[::2]
-    sums = input_dataset[1::2]
-    double_sums = sums[::2] + sums[1::2]
-    differences2 = differences[::2]-differences[1::2]
-    squared_diff_errors_sqrt = np.sqrt(differences_errors[::2]**2+differences_errors[1::2]**2)
-    squared_sum_errors_sqrt = np.sqrt(sums_errors[::2]**2+sums_errors[1::2]**2)
-    # using hypot for numerical stability
-    num = np.hypot(double_sums*squared_diff_errors_sqrt,differences2*squared_sum_errors_sqrt)
-    # Compute propagated errors for double differences
-    double_differences_errors = num/double_sums**2
+    # NOTE: All the numerator and denominator errors are all the same
+    differences_errors = np.sqrt(single_difference_errors[::2]**2 + single_difference_errors[1::2]**2)
+    sums_errors = np.sqrt(single_sum_errors[::2]**2 + single_sum_errors[1::2]**2)
+    denominator_errors = sums_errors
+    denominator = (single_sums[::2] + single_sums[1::2])  # This is used for normalization
 
-    # Compute propagated errors for double sums
-    double_sums_errors = np.hypot(sums_errors[::2],sums_errors[1::2])
+    # Compute propagated errors for double differences
+    double_differences_errors = normalized_double_differences ** 2 * np.sqrt(
+        (differences_errors / double_differences_numerators) ** 2 + 
+        (denominator_errors / denominator) ** 2
+    )
+    double_sums_errors = normalized_double_sums ** 2 * np.sqrt(
+        (sums_errors / double_sums_numerators) ** 2 + 
+        (denominator_errors / denominator) ** 2
+    )
+
+    # print("Double Differences Errors shape: ", np.shape(double_differences_errors))
+    # print("Double Sums Errors shape: ", np.shape(double_sums_errors))
 
     # Interleave errors to maintain order
     interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
-    # Double diffs extracted this way for ease of reverting back to the original setup
 
+    # print("Final interleaved Errors shape: ", np.shape(interleaved_errors))
 
     return interleaved_errors
+
+# Original version for CHARIS
+# def process_errors(input_errors, input_dataset): 
+#     """
+#     Propagates errors through the same transformations as `process_dataset`.
+    
+#     Args:
+#         input_errors (numpy array): Original errors in intensities.
+#         input_dataset (numpy array): Original dataset, needed for normalization steps.
+        
+#     Returns:
+#         numpy array: Propagated errors for double differences and sums.
+#     """
+
+#     # Ensure input is a NumPy array
+#     input_errors = np.array(input_errors)
+#     input_dataset = np.array(input_dataset)
+
+
+#     # Compute errors for differences and sums
+#     # differences_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+#     # sums_errors = np.sqrt(input_errors[::2]**2 + input_errors[1::2]**2)
+#     # Extract difference and sum errors
+#     differences_errors = input_errors[::2]
+#     sums_errors = input_errors[1::2]
+    
+#     # Compute single differences and single sums
+#     differences = input_dataset[::2]
+#     sums = input_dataset[1::2]
+#     double_sums = sums[::2] + sums[1::2]
+#     differences2 = differences[::2]-differences[1::2]
+#     squared_diff_errors_sqrt = np.sqrt(differences_errors[::2]**2+differences_errors[1::2]**2)
+#     squared_sum_errors_sqrt = np.sqrt(sums_errors[::2]**2+sums_errors[1::2]**2)
+#     # using hypot for numerical stability
+#     num = np.hypot(double_sums*squared_diff_errors_sqrt,differences2*squared_sum_errors_sqrt)
+#     # Compute propagated errors for double differences
+#     double_differences_errors = num/double_sums**2
+
+#     # Compute propagated errors for double sums
+#     double_sums_errors = np.hypot(sums_errors[::2],sums_errors[1::2])
+
+#     # Interleave errors to maintain order
+#     interleaved_errors = np.ravel(np.column_stack((double_differences_errors, double_sums_errors)))
+#     # Double diffs extracted this way for ease of reverting back to the original setup
+
+
+#     return interleaved_errors
 

@@ -291,6 +291,85 @@ def write_fits_info_to_csv(cube_directory_path, raw_cube_path, output_csv_path, 
 
     print(f"CSV file written to {output_csv_path}")
 
+def read_csv_VAMPIRES(file_path, obs_mode="IPOL", obs_filter=None, flc_a_theta = 0, flc_b_theta = 45):
+    # Read CSV file
+    df = pd.read_csv(file_path)
+    
+    MBI_filters = [760, 720, 670, 610]
+
+    # Process only one filter if applicable
+    if obs_mode == "MBI":
+        MBI_index = MBI_filters.index(obs_filter)
+        df = df[df["OBS-MOD"] == "IPOL_MBI"]
+    elif obs_mode == "Narrowband":
+        df = df[df["FILTER02"] == obs_filter]
+    elif obs_filter is not None:
+        df = df[df["FILTER01"] == obs_filter]
+
+    # print(type(df["diff"].iloc[0]))
+
+    # Convert relevant columns to float (handling possible conversion errors)
+    for col in ["RET-POS1", "D_IMRANG"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible
+
+    # Handle MBI mode: Convert stored strings to arrays and extract MBI_index-th value
+    if obs_mode == "MBI":
+        for col in ["diff", "sum", "diff_std", "sum_std"]:
+            df[col] = df[col].apply(parse_array_string)  # Convert string to array
+            df[col] = df[col].apply(lambda x: x[MBI_index] if isinstance(x, np.ndarray) and len(x) > MBI_index else np.nan)  # Extract MBI_index-th element safely
+    elif obs_mode == "Narrowband":
+        for col in ["diff", "sum"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible
+            # TODO: Remove this after calculating diff and sum std of the narrowband filters
+            df["diff_std"] = 0.001
+            df["sum_std"] = 0.001
+    else:
+       for col in ["diff", "sum", "diff_std", "sum_std"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")  # Convert to float, set errors to NaN if not possible 
+
+    # Interleave values from "diff" and "sum"
+    interleaved_values = np.ravel(np.column_stack((df["diff"].values, df["sum"].values)))
+
+    # Interleave values from "diff_std" and "sum_std"
+    interleaved_stds = np.ravel(np.column_stack((df["diff_std"].values, df["sum_std"].values)))
+
+    # Convert each row's values into a list of two-element lists
+    configuration_list = []
+    for index, row in df.iterrows():
+        # Extracting values from relevant columns
+        hwp_theta = row["RET-POS1"]
+        imr_theta = row["D_IMRANG"]
+
+        flc_theta = row["U_FLC"]
+
+        if flc_theta == "A":
+             flc_theta = flc_a_theta
+        elif flc_theta == "B":
+             flc_theta = flc_b_theta
+
+        # Building dictionary
+        row_data = {
+            "hwp": {"theta": hwp_theta},
+            "image_rotator": {"theta": imr_theta},
+            "flc": {"theta": flc_theta}
+        }
+
+        # Append two configurations for diff and sum
+        configuration_list.append(row_data)
+
+    return interleaved_values, interleaved_stds, configuration_list
+
+def parse_array_string(x):
+    if isinstance(x, str):
+        x = x.strip("[]")  # Remove brackets
+        try:
+            return np.array([float(i) for i in x.split()])  # Convert space-separated numbers to float
+        except ValueError:
+            return np.nan  # Return NaN if conversion fails
+    elif isinstance(x, (list, np.ndarray)):
+        return np.array(x)  # Already in the correct format
+    return np.nan  # If neither, return NaN
+
 
 def read_csv(file_path, mode= 'standard'):
     """Takes a CSV file path containing "D_IMRANG", 
