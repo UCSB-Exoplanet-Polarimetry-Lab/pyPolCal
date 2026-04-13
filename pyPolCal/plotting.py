@@ -468,7 +468,7 @@ def plot_data_and_model_alt(interleaved_values, model,
 
     model : np.ndarray
         Interleaved array of model-predicted double difference and double sum values.
-        If charis use single differences and sums. 
+        
 
     configuration_list : list of dict
         List of system configurations (one for each measurement), where each dictionary 
