@@ -21,13 +21,13 @@ import copy
 import matplotlib.pyplot as plt
 import emcee
 from pyPolCal import mcmc_helper_funcs_jax as mcmc
-from multiprocessing import Pool
+import multiprocessing as mp
 import os
 import jax.numpy as jnp
 from jax import jit
 import jax
 jax.config.update("jax_enable_x64", True)
-
+from pyPolCal.plotting import plot_data_and_model_alt
 
 #######################################################
 ###### Functions related to reading in .csv values ####
@@ -222,7 +222,7 @@ def run_mcmc(
     nwalkers=64, nsteps=10000, errors=None, pool_processes=None,
     s_in=np.array([1, 0, 0, 0]), process_dataset=None,
     process_errors=None, process_model=None,
-    log_f=-3.0, plot=False, include_sums=True
+    log_f=-3.0, plot=False, include_sums=True, test_plot=False
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
@@ -269,6 +269,8 @@ def run_mcmc(
     include_sums : bool
         Whether or not to take out double sums from modeling. The default is true
         because this works for VAMPIRES. It does not work for CHARIS.
+    test_plot : bool
+        If true, test plots the model with initial guesses before running mcmc.
     Returns
     -------
     sampler : emcee.EnsembleSampler
@@ -293,17 +295,43 @@ def run_mcmc(
     #     backend.reset(nwalkers, ndim)
     #if backend.iteration == 0:
     backend.reset(nwalkers, ndim)
-
+    # ensure p0_values is an array
+    p0_values = np.array(p0_values)
     pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
+    pos = jnp.array(pos)
+
+    if test_plot:
+        modeled_ds = model(p0_values[:-1], p_keys, system_mm, configuration_list,process_model=process_model)
+        # since there is only one config list per 2 dataset entries, add subsequent indices
+        config_list_dup = [item for item in configuration_list for _ in range(2)]
+        # grab one wavelength of the dataset:
+        indices_wavelength = []
+        for idx, config in enumerate(config_list_dup):
+            if config["hwp"]["wavelength"] == 1522.3565:
+                indices_wavelength.append(idx)
+        model_wavelength = modeled_ds[indices_wavelength]
+        dataset_wavelength = dataset[indices_wavelength]
+        errors_wavelength = errors[indices_wavelength]
+        # since i want un-duplicated config list for plotting func, i need to redo index grabbing
+        config_indices = []
+        for idx, config in enumerate(configuration_list):
+            if config["hwp"]["wavelength"] == 1522.3565:
+                config_indices.append(idx)
+        config_list_wavelength = [configuration_list[idx] for idx in config_indices]
+        plot_data_and_model_alt(dataset_wavelength, model_wavelength,config_list_wavelength,interleaved_stds=errors_wavelength,wavelength=1522.3565,include_sums=False)
 
     args = (
         system_mm, dataset, errors, configuration_list, p_keys, s_in,
         process_model, process_dataset, process_errors, 
         priors, bounds, logl_with_logf, include_sums
-        )
-
-    with Pool(processes=pool_processes) as pool:
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob, 
+    )
+    # print initial logl
+    logl_init = logl_with_logf(p0_values, system_mm, dataset, errors, configuration_list,p_keys, s_in=s_in, process_model=process_model, process_dataset=process_dataset, process_errors=process_errors, include_sums=include_sums)
+    print(f"Initial log-likelihood: {logl_init}")
+    # Use a 'spawn' context to avoid fork/forkserver issues when using JAX
+    ctx = mp.get_context('spawn')
+    with ctx.Pool(processes=pool_processes) as pool:
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob,
             args=args, pool=pool, backend=backend)
         #sampler.run_mcmc(pos, nsteps, progress=True)
         max_steps = nsteps
@@ -396,7 +424,7 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
     if include_sums is False:
      dataset = dataset[::2]
      if errors is not None:
-         errors = errors[::2]
+            errors = errors[::2]
      model_output = model_output[::2]
     if errors is not None:
         sigma2 = errors**2 + jnp.exp(2 * log_f)
