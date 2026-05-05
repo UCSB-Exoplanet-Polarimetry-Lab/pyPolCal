@@ -55,13 +55,38 @@ def _summary_values(flat_chain_converted, summary_mode="median", num_bins=100):
         "summary_mode must be one of: 'median', 'per_parameter_max' (or alias 'max', 'marginal_max')."
     )
 
-def load_chain_and_labels(h5_filename, txt_filename, include_logf=False):
-    base, ext = os.path.splitext(h5_filename)
-    h5_copy = base + "_copy" + ext
-    shutil.copy(h5_filename, h5_copy)
+def load_chain_and_labels(
+    h5_filename,
+    txt_filename,
+    include_logf=False,
+    step_range=None,
+    copy_file=False,
+):
+    h5_to_read = h5_filename
+    if copy_file:
+        base, ext = os.path.splitext(h5_filename)
+        h5_to_read = base + "_copy" + ext
+        shutil.copy(h5_filename, h5_to_read)
 
-    with h5py.File(h5_copy, 'r') as f:
-        chain = f['mcmc']['chain'][:]
+    with h5py.File(h5_to_read, 'r') as f:
+        mcmc_group = f['mcmc']
+        chain_dataset = mcmc_group['chain']
+        n_valid_steps = int(mcmc_group.attrs.get('iteration', chain_dataset.shape[0]))
+
+        if step_range is None:
+            start, end = 0, n_valid_steps
+        else:
+            start, end = step_range
+            if end is None:
+                end = n_valid_steps
+
+        if start < 0 or start >= end or end > n_valid_steps:
+            raise ValueError(
+                f"Invalid step_range {(start, end)} for HDF5 chain with "
+                f"{n_valid_steps} written steps."
+            )
+
+        chain = chain_dataset[start:end, :, :]
 
     with open(txt_filename, 'r') as f:
         p0_dict = json.load(f)
@@ -131,6 +156,7 @@ def summarize_posteriors(
     step_range=(0, None),
     summary_mode="median",
     num_bins=100,
+    error_mode="std",
 ):
     import instruments_jax as inst
 
@@ -150,13 +176,36 @@ def summarize_posteriors(
 
     selected_values = _summary_values(flat_chain, summary_mode=summary_mode, num_bins=num_bins)
     std_values = np.std(flat_chain, axis=0)
+    percentile_values = np.percentile(flat_chain, [16, 50, 84], axis=0)
+    percentile_errors = np.vstack(
+        (
+            percentile_values[1] - percentile_values[0],
+            percentile_values[2] - percentile_values[1],
+        )
+    ).T
+
+    error_mode_aliases = {
+        "std": "std",
+        "standard_deviation": "std",
+        "percentile": "percentile",
+        "percentiles": "percentile",
+        "uneven": "percentile",
+        "16_84": "percentile",
+    }
+    error_mode = error_mode_aliases.get(error_mode, error_mode)
+    if error_mode not in {"std", "percentile"}:
+        raise ValueError("error_mode must be one of: 'std' or 'percentile'.")
 
     # Build filtered parameter dict
     filtered_param_dict = {}
     for i, (name, value) in enumerate(zip(param_names, selected_values)):
         std = std_values[i]
         units = "waves" if ".phi" in name else ""
-        if summary_mode == "median":
+        if summary_mode == "median" and error_mode == "percentile":
+            value = percentile_values[1, i]
+            lower_error, upper_error = percentile_errors[i]
+            print(f"{name} ({units}): {value:.5f} -{lower_error:.5f}/+{upper_error:.5f}")
+        elif summary_mode == "median":
             print(f"{name} ({units}): {value:.5f} ± {std:.5f}")
         else:
             print(f"{name} ({units}) [{summary_mode}]: {value:.5f} (std={std:.5f})")
@@ -177,6 +226,8 @@ def summarize_posteriors(
         "fit_dict": filtered_param_dict,
         "selected_values": selected_values,
         "std_values": std_values,
+        "percentile_values": percentile_values,
+        "percentile_errors": percentile_errors,
     }
 
 def plot_mcmc_fits_double_diff_sum(

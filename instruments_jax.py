@@ -291,13 +291,25 @@ def run_mcmc(
 
     ndim = len(p0_values)
 
-    resume = os.path.exists(output_h5_file)
+    resume_existing = resume and os.path.exists(output_h5_file)
     backend = emcee.backends.HDFBackend(output_h5_file)
 
-    if not resume or backend.iteration == 0:
+    if resume_existing and backend.iteration > 0:
+        if backend.shape != (nwalkers, ndim):
+            raise ValueError(
+                f"Cannot resume {output_h5_file}: backend shape {backend.shape} "
+                f"does not match requested shape {(nwalkers, ndim)}."
+            )
+        pos = backend.get_last_sample()
+        nsteps_to_run = max(0, nsteps - backend.iteration)
+        print(
+            f"Resuming {output_h5_file} from iteration {backend.iteration}; "
+            f"running {nsteps_to_run} additional steps to reach {nsteps}."
+        )
+    else:
         backend.reset(nwalkers, ndim)
-
-    pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
+        pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
+        nsteps_to_run = nsteps
 
     args = (
         system_mm, dataset, errors, configuration_list, p_keys, s_in,
@@ -308,7 +320,8 @@ def run_mcmc(
     with Pool(processes=pool_processes) as pool:
         sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob, 
             args=args, pool=pool, backend=backend)
-        sampler.run_mcmc(pos, nsteps, progress=True)
+        if nsteps_to_run > 0:
+            sampler.run_mcmc(pos, nsteps_to_run, progress=True)
 
     return sampler, p_keys
 
@@ -721,7 +734,7 @@ def process_errors(input_errors, input_dataset):
 
 def plot_data_and_model(interleaved_values, interleaved_stds, model, 
     configuration_list, imr_theta_filter=None, wavelength=None, 
-    save_path=None, legend=True):
+    save_path=None, legend=True, model_alpha=0.1, first_model_alpha=1.0):
 
     import numpy as np
     import matplotlib.pyplot as plt
@@ -818,7 +831,7 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         model_values = np.asarray(model_values)
         dd_model = model_values[::2]
         ds_model = model_values[1::2]
-        alpha = 0.1 if i > 0 else 1.0
+        alpha = first_model_alpha if i == 0 else model_alpha
 
         if len(dd_model) < len(dd_values) or len(ds_model) < len(ds_values):
             raise ValueError(
@@ -870,4 +883,3 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         plt.savefig(save_path)
 
     plt.show()
-
