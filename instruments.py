@@ -13,6 +13,7 @@ import mcmc_helper_funcs as mcmc
 from multiprocessing import Pool
 import copy
 import os
+import shutil
 from functools import partial
 from numba import jit
 
@@ -211,13 +212,24 @@ def generate_measurement(system_mm, s_in = np.array([1, 0, 0, 0])):
 #######################################################
 
 # Main MCMC function
+def _copy_existing_h5_before_start(output_h5_file):
+    if not os.path.exists(output_h5_file):
+        return None
+
+    base, ext = os.path.splitext(output_h5_file)
+    copied_filename = base + "_pre_run_copy" + ext
+    shutil.copy2(output_h5_file, copied_filename)
+    print(f"Copied existing backend to {copied_filename} before opening {output_h5_file}.")
+    return copied_filename
+
+
 def run_mcmc(
     p0_dict, system_mm, dataset, errors, configuration_list,
     priors, bounds, logl_function, output_h5_file,
     nwalkers=64, nsteps=10000, pool_processes=None, 
     s_in=np.array([1, 0, 0, 0]), process_dataset=None, 
     process_errors=None, process_model=None, resume=True,
-    include_log_f=False, log_f=-3.0
+    include_log_f=False, log_f=-3.0, copy_existing_h5_before_start=True
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
@@ -265,6 +277,9 @@ def run_mcmc(
         If True, appends a `log_f` noise inflation parameter to the parameter list.
     log_f0 : float, optional
         Initial value for `log_f` if `include_log_f` is True.
+    copy_existing_h5_before_start : bool, optional
+        If True, copies an existing backend to ``*_pre_run_copy.h5`` before
+        opening it for resume/write operations.
 
     Returns
     -------
@@ -291,6 +306,9 @@ def run_mcmc(
         }
 
     ndim = len(p0_values)
+
+    if copy_existing_h5_before_start:
+        _copy_existing_h5_before_start(output_h5_file)
 
     resume = os.path.exists(output_h5_file)
     backend = emcee.backends.HDFBackend(output_h5_file)
@@ -689,21 +707,21 @@ def process_errors(input_errors, input_dataset):
     normalized_double_differences, normalized_double_sums = \
         build_double_differences_and_sums(single_differences, single_sums, normalized=True)
 
-    # Compute errors for differences and sums
-    # NOTE: All the numerator and denominator errors are all the same
+    # Numerators are built from the single differences; the denominator is
+    # built from the single sums.
     differences_errors = np.sqrt(single_difference_errors[::2]**2 + single_difference_errors[1::2]**2)
-    sums_errors = np.sqrt(single_sum_errors[::2]**2 + single_sum_errors[1::2]**2)
-    denominator_errors = sums_errors
+    denominator_errors = np.sqrt(single_sum_errors[::2]**2 + single_sum_errors[1::2]**2)
     denominator = (single_sums[::2] + single_sums[1::2])  # This is used for normalization
 
-    # Compute propagated errors for double differences
-    double_differences_errors = np.abs(normalized_double_differences) * np.sqrt(
-        (differences_errors / double_differences_numerators) ** 2 + 
-        (denominator_errors / denominator) ** 2
+    # Propagate f = N / D using derivatives:
+    # sigma_f^2 = (sigma_N / D)^2 + (N * sigma_D / D^2)^2.
+    double_differences_errors = np.sqrt(
+        (differences_errors / denominator) ** 2
+        + (double_differences_numerators * denominator_errors / denominator**2) ** 2
     )
-    double_sums_errors = np.abs(normalized_double_sums) * np.sqrt(
-        (sums_errors / double_sums_numerators) ** 2 + 
-        (denominator_errors / denominator) ** 2
+    double_sums_errors = np.sqrt(
+        (differences_errors / denominator) ** 2
+        + (double_sums_numerators * denominator_errors / denominator**2) ** 2
     )
 
     # print("Double Differences Errors shape: ", np.shape(double_differences_errors))
@@ -827,4 +845,3 @@ def plot_data_and_model(interleaved_values, interleaved_stds, model,
         plt.savefig(save_path)
 
     plt.show()
-

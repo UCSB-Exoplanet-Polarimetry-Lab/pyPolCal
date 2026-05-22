@@ -13,10 +13,16 @@ sys.path.append(custom_module_path)
 
 import instruments as inst
 
+
+def _copy_h5_for_read(h5_filename):
+    copied_filename = h5_filename.replace(".h5", "_copy.h5")
+    shutil.copy2(h5_filename, copied_filename)
+    return copied_filename
+
+
 def load_sampler_data(h5_filename, txt_filename):
     """Copy the .h5 file and load the MCMC chain and parameter names from a .txt file."""
-    copied_filename = h5_filename.replace(".h5", "_copy.h5")
-    shutil.copy(h5_filename, copied_filename)
+    copied_filename = _copy_h5_for_read(h5_filename)
 
     with h5py.File(copied_filename, 'r') as f:
         chain = f['mcmc']['chain'][:]  # shape might be (nsteps, nwalkers, ndim)
@@ -35,7 +41,8 @@ def load_sampler_data(h5_filename, txt_filename):
     return chain, param_names
 
 def inspect_h5_chain_shape(h5_filename):
-    with h5py.File(h5_filename, 'r') as f:
+    copied_filename = _copy_h5_for_read(h5_filename)
+    with h5py.File(copied_filename, 'r') as f:
         chain = f['mcmc']['chain']
         print(f"Chain shape: {chain.shape} (nwalkers, nsteps, ndim)")
 
@@ -57,8 +64,7 @@ def plot_mcmc_chains(h5_filename, txt_filename, burn_in=0, n_walkers_to_plot=Non
     n_walkers_to_plot : int or None
         Number of random walkers to plot. If None, plots all walkers.
     """
-    copied_filename = h5_filename.replace(".h5", "_copy.h5")
-    shutil.copy(h5_filename, copied_filename)
+    copied_filename = _copy_h5_for_read(h5_filename)
 
     with h5py.File(copied_filename, 'r') as f:
         chain = f['mcmc']['chain'][:]
@@ -157,8 +163,7 @@ def plot_mcmc_fits(h5_filename, txt_filename, csv_path, filter_wavelength,
     system_mm = generate_system_mueller_matrix(system_dict)
 
     # Load MCMC samples
-    copied_filename = h5_filename.replace(".h5", "_copy.h5")
-    shutil.copy(h5_filename, copied_filename)
+    copied_filename = _copy_h5_for_read(h5_filename)
     with h5py.File(copied_filename, 'r') as f:
         chain = f['mcmc']['chain'][:]
     flat_chain = chain[:, burn_in:, :].reshape(-1, chain.shape[-1])

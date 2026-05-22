@@ -13,6 +13,13 @@ from instruments_jax import (
 )
 
 
+def _copy_h5_for_read(h5_filename):
+    base, ext = os.path.splitext(h5_filename)
+    copied_filename = base + "_copy" + ext
+    shutil.copy2(h5_filename, copied_filename)
+    return copied_filename
+
+
 def _normalize_step_range(chain, step_range):
     nsteps = chain.shape[0]
     start, end = step_range
@@ -60,13 +67,11 @@ def load_chain_and_labels(
     txt_filename,
     include_logf=False,
     step_range=None,
-    copy_file=False,
+    copy_file=True,
 ):
     h5_to_read = h5_filename
     if copy_file:
-        base, ext = os.path.splitext(h5_filename)
-        h5_to_read = base + "_copy" + ext
-        shutil.copy(h5_filename, h5_to_read)
+        h5_to_read = _copy_h5_for_read(h5_filename)
 
     with h5py.File(h5_to_read, 'r') as f:
         mcmc_group = f['mcmc']
@@ -254,7 +259,8 @@ def plot_mcmc_fits_double_diff_sum(
     p0_values, p_keys = parse_configuration(p0_dict)
 
     # Load and preprocess MCMC chain
-    with h5py.File(h5_filename, "r") as f:
+    h5_to_read = _copy_h5_for_read(h5_filename)
+    with h5py.File(h5_to_read, "r") as f:
         chain = f["mcmc"]["chain"][:]
     # Determine shape
     nsteps, nwalkers, ndim = chain.shape
