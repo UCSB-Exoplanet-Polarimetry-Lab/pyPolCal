@@ -938,6 +938,10 @@ def summarize_median_posterior(h5_path, p0_dict, step_range=(0, None)):
     # Extract parameter keys
     _, param_keys = parse_configuration(p0_dict)
 
+    # Find index of highest log prob for maximum a posteiori calculation
+    max_log_prob_index = np.argmax(reader.get_log_prob()[step_range[0]:step_range[1]])
+    max_log_prob_params = flat_chain[max_log_prob_index]
+
     summary = {}
 
     print("Posterior Medians and 1 sigma Credible Intervals:")
@@ -946,6 +950,8 @@ def summarize_median_posterior(h5_path, p0_dict, step_range=(0, None)):
         median = np.median(samples)
         lower = np.percentile(samples, 16)
         upper = np.percentile(samples, 84)
+        map_val = max_log_prob_params[i]
+
         err_low = median - lower
         err_high = upper - median
         component = comp[0]
@@ -955,7 +961,8 @@ def summarize_median_posterior(h5_path, p0_dict, step_range=(0, None)):
         summary[component][key] = {
             "median": median,
             "-1sigma": err_low,
-            "+1sigma": err_high
+            "+1sigma": err_high,
+            "map": map_val
 }
         print(f"{component},{key}: {median:.5f} (+{err_high:.5f}/-{err_low:.5f})")
 

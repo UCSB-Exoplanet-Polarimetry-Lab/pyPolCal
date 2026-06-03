@@ -23,10 +23,7 @@ import emcee
 from pyPolCal import mcmc_helper_funcs_jax as mcmc
 import multiprocessing as mp
 import os
-import jax.numpy as jnp
-from jax import jit
-import jax
-jax.config.update("jax_enable_x64", True)
+from pyPolCal.fitting import logl
 from pyPolCal.plotting import plot_data_and_model_alt
 
 #######################################################
@@ -282,8 +279,11 @@ def run_mcmc(
 
     p0_values, p_keys = parse_configuration(p0_dict)
 
-    
-    p0_values = p0_values + [log_f]             
+    # Append log_f as an explicit parameter so it can be constrained by
+    # the input `prior_dict` and `bounds_dict`. Use a synthetic component
+    # name '__log_f' so it doesn't collide with real components.
+    p0_values = p0_values + [log_f]
+    p_keys = p_keys + [["__log_f", "log_f"]]
 
     ndim = len(p0_values)
 
@@ -297,10 +297,12 @@ def run_mcmc(
     backend.reset(nwalkers, ndim)
     # ensure p0_values is an array
     p0_values = np.array(p0_values)
+    # emcee expects NumPy arrays; keep pos as a NumPy ndarray to avoid
+    # storing JAX DeviceArray objects in the HDF backend.
     pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
-    pos = jnp.array(pos)
 
     if test_plot:
+        
         modeled_ds = model(p0_values[:-1], p_keys, system_mm, configuration_list,process_model=process_model)
         # since there is only one config list per 2 dataset entries, add subsequent indices
         config_list_dup = [item for item in configuration_list for _ in range(2)]
@@ -325,9 +327,9 @@ def run_mcmc(
         process_model, process_dataset, process_errors, 
         priors, bounds, logl_with_logf, include_sums
     )
-    # print initial logl
-    logl_init = logl_with_logf(p0_values, system_mm, dataset, errors, configuration_list,p_keys, s_in=s_in, process_model=process_model, process_dataset=process_dataset, process_errors=process_errors, include_sums=include_sums)
-    print(f"Initial log-likelihood: {logl_init}")
+    # print initial logl (ensure we pass a NumPy array slice)
+    logl_init = logl_with_logf(np.array(pos[0]), system_mm, dataset, errors, configuration_list, p_keys, s_in=s_in, process_model=process_model, process_dataset=process_dataset, process_errors=process_errors, include_sums=include_sums)
+    print(f"Initial log-likelihood for walker 1: {logl_init}")
     # Use a 'spawn' context to avoid fork/forkserver issues when using JAX
     ctx = mp.get_context('spawn')
     with ctx.Pool(processes=pool_processes) as pool:
@@ -380,7 +382,7 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
 
     Parameters
     ----------
-    theta : jnp.ndarray
+    theta : np.ndarray
         Parameter vector, with the last entry being log_f.
     system_mm : SystemMuellerMatrix
         Optical system Mueller matrix.
@@ -406,16 +408,15 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
         Log-likelihood value.
     """
     log_f = theta[-1]
-    theta = theta[:-1]
-
-    # Generate model output
-    
+    theta = theta[:-1]  # Extract the actual model parameters
+    system_parameters = system_parameters[:-1]  # Exclude the synthetic log_f parameter
+    # Generate model output using the full theta vector
     model_output = model(theta, system_parameters, system_mm, configuration_list,
-                            s_in=s_in, process_model=process_model)
+                        s_in=s_in, process_model=process_model)
 
-    dataset = jnp.array(dataset)
+    dataset = np.array(dataset)
     if errors is not None:
-        errors = jnp.array(errors)
+        errors = np.array(errors)
         if process_errors is not None:
             errors = process_errors(copy.deepcopy(errors), copy.deepcopy(dataset))
     if process_dataset is not None:
@@ -427,10 +428,12 @@ def logl_with_logf(theta, system_mm, dataset, errors, configuration_list,
             errors = errors[::2]
      model_output = model_output[::2]
     if errors is not None:
-        sigma2 = errors**2 + jnp.exp(2 * log_f)
-        return -0.5 * jnp.sum((dataset - model_output)**2 / sigma2 + jnp.log(sigma2))
+        # Use the provided measurement uncertainties with noise inflation logf
+        sigma2 = errors**2 + np.exp(2 * log_f)  # Total variance including noise inflation
+        # Full Gaussian log-likelihood (includes normalization term)
+        return -0.5 * np.sum((dataset - model_output)**2 / sigma2 + np.log(sigma2))
     else:
-        return -0.5 * jnp.sum((dataset - model_output)**2 )
+        return -0.5 * np.sum((dataset - model_output)**2 )
 
 
 # def mcmc_system_mueller_matrix(p0, system_mm, dataset, errors, configuration_list):
@@ -563,7 +566,12 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
     if s_in is None:
         s_in = np.array([1, 0, 0, 0])
 
-    # Update the system Mueller matrix with parameters that we're fitting
+    # Work on a deep copy of the system Mueller matrix so repeated calls
+    # to model() do not mutate the original object. This prevents
+    # cumulative in-place updates that can corrupt likelihood evaluations
+    # across MCMC samples.
+    system_mm = copy.deepcopy(system_mm)
+    # Update the copied system Mueller matrix with parameters that we're fitting
     system_mm = update_system_mm(p, system_parameters, system_mm)
 
     # Generate a model dataset
@@ -599,30 +607,28 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
     return output_intensities
 
 
-@jit
 def build_differences_and_sums(intensities):
-    intensities = jnp.array(intensities)
+    intensities = np.array(intensities)
     differences = (intensities[::2] - intensities[1::2])
     sums = intensities[::2] + intensities[1::2]
 
     return differences, sums
-@jit
 def build_double_differences_and_sums(differences, sums):
     '''
     Assume that the input intensities are organized in pairs. Such that
     '''
     # Making sure that differences and sums are numpy arrays
-    differences = jnp.array(differences)
-    sums = jnp.array(sums)
+    differences = np.array(differences)
+    sums = np.array(sums)
 
     double_differences = (differences[::2]-differences[1::2])/(sums[::2]+sums[1::2])
     double_sums = 0.5*(sums[::2]+sums[1::2])
 
     return double_differences, double_sums
-@jit
+
 def normalize_diffs(differences,sums):
-    diffs=differences/sums
-    return diffs,sums
+    diffs = np.array(differences) / np.array(sums)
+    return diffs, sums
 # ONLY USES DIFFERENCES
 
 def process_model(model_intensities):
