@@ -1,5 +1,5 @@
 """
-mcmc_helper_funcs_jax.py
+mcmc_helper_funcs.py
 
 Helper functions for MCMC sampling using JAX.
 

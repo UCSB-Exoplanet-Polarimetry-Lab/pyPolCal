@@ -1,5 +1,5 @@
 """
-instruments_jax.py
+instruments_mcmc.py
 
 Contains functions used exclusively for MCMC. 
 

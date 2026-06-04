@@ -4,12 +4,8 @@
 
 from pyPolCal.csv_tools import read_csv_physical_model_all_bins
 from pathlib import Path
-import multiprocessing as mp
-import os
 import numpy as np
-from pyPolCal.constants import wavelength_bins
-# mp.set_start_method("spawn", force=True) # Jax was slowing down from os.fork() and this fixed it
-# os.environ["JAX_PLATFORM_NAME"] = "cpu"
+
 def main():
     # Defining Path to my CSVs
     csvdir = Path('/home/thomasmc/pyPolCal/pyPolCal/CHARIS/datacsvs/onsky_nbs/HD293396')
@@ -101,7 +97,7 @@ def main():
     "m2": {"type": "uniform", "kwargs": {"low":0.3*m2, "high": 6*m2}},
     "b2": {"type": "uniform", "kwargs": {"low":0.3*b2, "high": 6*b2}},
     }}
-    from pyPolCal.instruments_jax import run_mcmc, process_model, process_dataset, process_errors
+    from pyPolCal.instruments_mcmc import run_mcmc, process_model, process_dataset, process_errors
 
     # Path for the h5 emcee output file
     output_h5 = 'mcmc_tutorial_output_onsky_test_uniform_gaussian_m1_bounds.h5'

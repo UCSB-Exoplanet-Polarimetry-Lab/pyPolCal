@@ -4,13 +4,9 @@
 
 from pyPolCal.csv_tools import read_csv_physical_model_all_bins
 from pathlib import Path
-import multiprocessing as mp
-import os
-import numpy as np
 from pyPolCal.constants import wavelength_bins
 from importlib.resources import files
-# mp.set_start_method("spawn", force=True) # Jax was slowing down from os.fork() and this fixed it
-# os.environ["JAX_PLATFORM_NAME"] = "cpu"
+
 def main():
     # Defining Path to my CSVs
     # Defining Path to my CSVs
@@ -106,7 +102,7 @@ def main():
         "lp": {
             "delta_theta": {"type": "gaussian", "kwargs": {"mu":0, "sigma": 1}},
     }}
-    from pyPolCal.instruments_jax import run_mcmc, process_model, process_dataset 
+    from pyPolCal.instruments_mcmc import run_mcmc, process_model, process_dataset 
 
     # Path for the h5 emcee output file
     output_h5 = 'mcmc_tutorial_output.h5'

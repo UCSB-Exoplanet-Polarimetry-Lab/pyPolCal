@@ -48,8 +48,8 @@ pyPolCal/
    │── csv_tools.py   # Tools for writing and reading CSV files with FITS data
    │── fitting.py     # Tools for fitting the Mueller matrix model
    │── instruments.py     # Wrapper functions for minimize_system_mueller_matrix to fit with one function
-   │── instruments_jax.py     # Jax-compatible functions for MCMC (in development, but functional)
-   │── mcmc_helper_funcs_jax.py     # More MCMC helpers
+   │── instruments_mcmc.py     # functions for MCMC (in development, but functional)
+   │── mcmc_helper_funcs.py     # More MCMC helpers
    │── mm_registry.py # Tools for defining Mueller matrix component functions
    │── on_sky.py     # CSV/fitting tools for unpolarized or polarized standard star calibration
    │── plotting.py     # Plotting functions

@@ -8,8 +8,8 @@ mcmc_helper_funcs_path = ""
 
 import numpy as np
 import json
-import instruments_jax as inst
-# from instruments_jax import logl_with_logf, process_dataset, process_errors, process_model
+import pyPolCal.instruments_mcmc as inst
+# from instruments_mcmc import logl_with_logf, process_dataset, process_errors, process_model
 import mcmc_helper_funcs_jax as mcmc
 from functools import partial
 
