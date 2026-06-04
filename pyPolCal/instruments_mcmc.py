@@ -20,7 +20,7 @@ from scipy.optimize import minimize
 import copy
 import matplotlib.pyplot as plt
 import emcee
-from pyPolCal import mcmc_helper_funcs_jax as mcmc
+from pyPolCal import mcmc_helper_funcs as mcmc
 import multiprocessing as mp
 import os
 from pyPolCal.fitting import logl

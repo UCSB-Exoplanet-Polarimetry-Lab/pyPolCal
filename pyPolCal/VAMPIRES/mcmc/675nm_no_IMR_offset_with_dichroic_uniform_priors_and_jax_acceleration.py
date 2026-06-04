@@ -10,7 +10,7 @@ import numpy as np
 import json
 import pyPolCal.instruments_mcmc as inst
 # from instruments_mcmc import logl_with_logf, process_dataset, process_errors, process_model
-import mcmc_helper_funcs_jax as mcmc
+import pyPolCal.mcmc_helper_funcs as mcmc
 from functools import partial
 
 # Example file path and configuration

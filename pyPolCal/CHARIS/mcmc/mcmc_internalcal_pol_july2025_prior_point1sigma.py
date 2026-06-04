@@ -9,7 +9,7 @@ parent_dir = Path.cwd().parent
 sys.path.append(str(parent_dir))
 import re
 import instruments as inst
-from instruments_jax import *
+from pyPolCal.instruments_mcmc import *
 from physical_models import *
 from scipy import stats as scipy_stats
 import h5py
