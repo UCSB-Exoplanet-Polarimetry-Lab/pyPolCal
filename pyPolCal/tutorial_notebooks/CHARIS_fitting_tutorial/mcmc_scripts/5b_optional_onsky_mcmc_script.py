@@ -38,7 +38,7 @@ def main():
 
     "hwp" : {
         "type" : "two_layer_HWP_function", # Joost 't Hart 2021 HWP model
-        "properties" : {"w_SiO2":1.638, "w_MgF2":1.28, "delta_theta": -3.168e-02},
+        "properties" : {"w_SiO2":1.653, "w_MgF2":1.291, "delta_theta": -3.168e-02},
         "tag": "internal",
     },
 
