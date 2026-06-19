@@ -576,15 +576,15 @@ def plot_data_and_model_alt(interleaved_values, model,
         ax = axes[0]
         for hwp, d in dd_by_hwp.items():
             err = ax.errorbar(
-                d["pa"], d["values"],
-                yerr=d["stds"], fmt='o',
+                d["pa"], 100*np.array(d["values"]),
+                yerr=100*np.array(d["stds"]), fmt='o',
                 label=f"{hwp}°"
             )
             color = err[0].get_color()
-            ax.plot(d["pa"], d["model"], '-', color=color)
+            ax.plot(d["pa"], 100*np.array(d["model"]), '-', color=color)
 
         ax.set_xlabel("Altitude angle PA (deg)")
-        ax.set_ylabel("Double Difference")
+        ax.set_ylabel("Double Difference (%)")
         ax.legend(title=r"HWP $\theta$")
 
         # Double Sum
@@ -605,12 +605,12 @@ def plot_data_and_model_alt(interleaved_values, model,
     else:
         for hwp, d in dd_by_hwp.items():
             err = ax.errorbar(
-                -np.array(d["pa"]), d["values"],
-                yerr=d["stds"], fmt='o',
+                -np.array(d["pa"]), 100*np.array(d["values"]),
+                yerr=100*np.array(d["stds"]), fmt='o',
                 label=f"{hwp}°"
             )
             color = err[0].get_color()
-            ax.plot(-np.array(d["pa"]), d["model"], '-', color=color)
+            ax.plot(-np.array(d["pa"]), 100*np.array(d["model"]), '-', color=color)
 
             residuals = (np.array(d["values"]) - np.array(d["model"])) * 100
             small_ax.scatter(-np.array(d["pa"]), residuals, color=color)
@@ -618,7 +618,7 @@ def plot_data_and_model_alt(interleaved_values, model,
         small_ax.axhline(0, color='black', linewidth=1)
         small_ax.set_xlabel("Altitude angle PA (deg)")
         small_ax.set_ylabel(r"Residual ($\%$)")
-        ax.set_ylabel("Double Difference")
+        ax.set_ylabel("Double Difference (%)")
         ax.legend(title=r"HWP $\theta$")
         ax.grid()
 
