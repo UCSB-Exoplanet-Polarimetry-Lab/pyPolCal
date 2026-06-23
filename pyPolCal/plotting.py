@@ -618,7 +618,7 @@ def plot_data_and_model_alt(interleaved_values, model,
         small_ax.axhline(0, color='black', linewidth=1)
         small_ax.set_xlabel("Altitude angle PA (deg)")
         small_ax.set_ylabel(r"Residual ($\%$)")
-        ax.set_ylabel("Double Difference (%)")
+        ax.set_ylabel("Normalized Double Difference (%)")
         ax.legend(title=r"HWP $\theta$")
         ax.grid()
 
