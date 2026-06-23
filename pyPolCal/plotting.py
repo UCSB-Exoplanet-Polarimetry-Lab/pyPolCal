@@ -583,7 +583,7 @@ def plot_data_and_model_alt(interleaved_values, model,
             color = err[0].get_color()
             ax.plot(d["pa"], 100*np.array(d["model"]), '-', color=color)
 
-        ax.set_xlabel("Altitude angle PA (deg)")
+        ax.set_xlabel("Altitude Angle ($^\circ$)")
         ax.set_ylabel("Double Difference (%)")
         ax.legend(title=r"HWP $\theta$")
 
@@ -616,7 +616,7 @@ def plot_data_and_model_alt(interleaved_values, model,
             small_ax.scatter(-np.array(d["pa"]), residuals, color=color)
 
         small_ax.axhline(0, color='black', linewidth=1)
-        small_ax.set_xlabel("Altitude angle PA (deg)")
+        small_ax.set_xlabel("Altitude Angle ($^\circ$)")
         small_ax.set_ylabel(r"Residual ($\%$)")
         ax.set_ylabel("Normalized Double Difference (%)")
         ax.legend(title=r"HWP $\theta$")
