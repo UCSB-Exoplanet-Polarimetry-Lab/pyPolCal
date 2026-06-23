@@ -607,4 +607,109 @@ def calc_polarimetric_accuracy(s_abs, s_rel, p, chi_deg):
 
     return s_dolp, s_aolp_deg
 
+def hwp_adi_sync_offset(alt, pa):
+    return 0.5 * pa + alt
+def calc_pol_eff_global(system_dict, p0_dict, alt=None, pa=None):
+    """
+    Calculate polarimetric efficiency by computing the degree of linear polarization for simulated double differences. 
+    
 
+    Parameters
+    -----------
+   
+    system_dict : dict
+        Dictionary containing system parameters.
+    p0_dict : dict
+        Dictionary containing initial guesses for fit. You can put whatever in here, it's an artifact of 
+        the modeling function. But it must be a parameter you want assigned to a 
+        model component.
+    alt : float, optional
+        Altitude angle in degrees. Only matters if you include M3 in the model. Rotation matrix must be called "altitude_rot"
+        in the system dict.
+    pa : float, optional
+        Parallactic angle in degrees. Only matters if you include M3 in the model. Rotation matrix must be called "parang_rot"
+        in the system dict.
+
+    Returns
+    --------
+    np.ndarray
+        2d array of polarimetric efficiencies
+
+    """
+    # HWP modulation cycle
+    hwp_cycle = [0.0, 45.0, 11.25, 56.25, 22.5, 67.5, 33.75, 78.75]
+
+    # Continuous image rotator angles
+    num_rotator_steps = 181
+    image_rotator_angles = np.linspace(0, 180, num_rotator_steps)
+
+    # generate system mueller matrix
+    system_mm_ = generate_system_mueller_matrix(system_dict)
+    pol_eff_by_wavelength = []
+    aolp_off_by_wavelength = []
+    for bin in range(22):
+
+        wl = wavelength_bins[bin]
+
+        # Generate the configuration list with the expanded dictionary structure
+        simulated_configuration_list = [
+        {
+        'hwp': {
+            'theta': hwp_theta, 
+            'wavelength': wl
+        },
+        'image_rotator': {
+            'theta': float(rot_theta), 
+            'wavelength': wl
+        },
+        'wollaston': {
+            'wavelength': wl
+        }
+        }
+        for rot_theta in image_rotator_angles
+        for hwp_theta in hwp_cycle
+        ]
+        if alt is not None and pa is not None:
+            hwp_adi_offset = hwp_adi_sync_offset(np.radians(alt), np.radians(pa))
+            simulated_configuration_list = [
+            {
+            'hwp': {
+                'theta': hwp_theta+hwp_adi_offset, 
+                'wavelength': wl
+            },
+            'image_rotator': {
+                'theta': float(rot_theta), 
+                'wavelength': wl
+            },
+            'wollaston': {
+                'wavelength': wl
+            },
+            'altitude_rot':{ 'pa':-alt},
+            'parang_rot':{ 'pa':pa},
+            'M3': {
+                'wavelength': wl
+            }
+            }
+            for rot_theta in image_rotator_angles
+            for hwp_theta in hwp_cycle
+            ]
+
+
+        # parse configuration list
+        p0_values, p0_keywords = parse_configuration(p0_dict)
+
+        # update system mm with p0 
+        system_mm = update_system_mm(p0_values,p0_keywords,system_mm_)
+
+        # generate simulated normalized single differences
+        LR_intensities = model(p0_values, p0_keywords, system_mm, simulated_configuration_list)
+
+        # process into modeled double differences
+        modeled_diffs = process_model(LR_intensities)[::2]
+        modeled_q = modeled_diffs[0::4]
+        modeled_u = modeled_diffs[2::4]
+        pol_efs = np.sqrt(modeled_q**2 + modeled_u**2)
+        pol_eff_by_wavelength.append(pol_efs)
+    pol_eff_by_wavelength = np.array(pol_eff_by_wavelength)
+
+    return pol_eff_by_wavelength
