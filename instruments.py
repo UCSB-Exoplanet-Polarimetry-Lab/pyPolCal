@@ -46,8 +46,10 @@ def read_csv(file_path, obs_mode="IPOL", obs_filter=None, flc_a_theta = 0, flc_b
         df = df[df["OBS-MOD"] == "IPOL_MBI"]
     elif obs_mode == "Narrowband":
         df = df[df["FILTER02"] == obs_filter]
-    elif obs_filter is not None:
-        df = df[df["FILTER01"] == obs_filter]
+    else:
+        df = df[df["OBS-MOD"] == obs_mode]
+        if obs_filter is not None:
+            df = df[df["FILTER01"] == obs_filter]
 
     # print(type(df["diff"].iloc[0]))
 

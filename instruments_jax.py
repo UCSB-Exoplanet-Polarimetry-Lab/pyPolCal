@@ -222,13 +222,94 @@ def _copy_existing_h5_before_start(output_h5_file):
     return copied_filename
 
 
+class BufferedHDFBackend(emcee.backends.HDFBackend):
+    """HDF backend that stores every sample but writes them in chunks."""
+
+    def __init__(self, *args, flush_interval=1, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.flush_interval = int(flush_interval)
+        if self.flush_interval < 1:
+            raise ValueError("flush_interval must be at least 1.")
+        self._state_buffer = []
+        self._accepted_buffer = []
+
+    def grow(self, ngrow, blobs):
+        if self.flush_interval <= 1:
+            return super().grow(ngrow, blobs)
+
+        # emcee calls grow before sampling so blob storage can be initialized.
+        # Actual chain/log_prob growth is deferred until buffered writes flush.
+        if blobs is not None:
+            return super().grow(0, blobs)
+        return None
+
+    def save_step(self, state, accepted):
+        if self.flush_interval <= 1:
+            return super().save_step(state, accepted)
+
+        self._check(state, accepted)
+        self._state_buffer.append(
+            {
+                "coords": np.array(state.coords, copy=True),
+                "log_prob": np.array(state.log_prob, copy=True),
+                "blobs": None
+                if state.blobs is None
+                else np.array(state.blobs, copy=True),
+                "random_state": copy.deepcopy(state.random_state),
+            }
+        )
+        self._accepted_buffer.append(np.array(accepted, copy=True))
+
+        if len(self._state_buffer) >= self.flush_interval:
+            self.flush()
+
+    def flush(self):
+        if not self._state_buffer:
+            return
+
+        with self.open("a") as f:
+            g = f[self.name]
+            iteration = int(g.attrs["iteration"])
+            n_buffered = len(self._state_buffer)
+            new_iteration = iteration + n_buffered
+
+            if g["chain"].shape[0] < new_iteration:
+                g["chain"].resize(new_iteration, axis=0)
+                g["log_prob"].resize(new_iteration, axis=0)
+                if g.attrs["has_blobs"]:
+                    g["blobs"].resize(new_iteration, axis=0)
+
+            g["chain"][iteration:new_iteration, :, :] = np.array(
+                [item["coords"] for item in self._state_buffer]
+            )
+            g["log_prob"][iteration:new_iteration, :] = np.array(
+                [item["log_prob"] for item in self._state_buffer]
+            )
+
+            if self._state_buffer[-1]["blobs"] is not None:
+                g["blobs"][iteration:new_iteration, :] = np.array(
+                    [item["blobs"] for item in self._state_buffer]
+                )
+
+            g["accepted"][:] += np.sum(self._accepted_buffer, axis=0)
+
+            for i, value in enumerate(self._state_buffer[-1]["random_state"]):
+                g.attrs[f"random_state_{i}"] = value
+
+            g.attrs["iteration"] = new_iteration
+
+        self._state_buffer.clear()
+        self._accepted_buffer.clear()
+
+
 def run_mcmc(
     p0_dict, system_mm, dataset, errors, configuration_list,
     priors, bounds, logl_function, output_h5_file,
     nwalkers=64, nsteps=10000, pool_processes=None, 
     s_in=np.array([1, 0, 0, 0]), process_dataset=None, 
     process_errors=None, process_model=None, resume=True,
-    include_log_f=False, log_f=-3.0, copy_existing_h5_before_start=True
+    include_log_f=False, log_f=-3.0, copy_existing_h5_before_start=True,
+    backend_write_interval=1, stretch_move_a=None, backend_flush_interval=1
 ):
     """
     Run MCMC using emcee with support for dictionary-based parameter inputs.
@@ -259,7 +340,9 @@ def run_mcmc(
     nwalkers : int, optional
         Number of walkers (default is max of 2x parameters or process-scaled).
     nsteps : int, optional
-        Number of steps for each walker.
+        Number of saved samples to target for each walker. With the default
+        ``backend_write_interval=1``, this is also the number of proposal
+        steps.
     pool_processes : int, optional
         Number of parallel processes to use.
     s_in : np.ndarray, optional
@@ -279,6 +362,15 @@ def run_mcmc(
     copy_existing_h5_before_start : bool, optional
         If True, copies an existing backend to ``*_pre_run_copy.h5`` before
         opening it for resume/write operations.
+    backend_write_interval : int, optional
+        Thinning factor for stored samples. The default of 1 preserves every
+        proposal step in the HDF5 backend.
+    stretch_move_a : float, optional
+        StretchMove scale parameter to pass to emcee. If not set, emcee's
+        default move configuration is used.
+    backend_flush_interval : int, optional
+        Number of saved samples to buffer before flushing to HDF5. This does
+        not thin the chain; it only changes disk-write cadence.
 
     Returns
     -------
@@ -306,11 +398,25 @@ def run_mcmc(
 
     ndim = len(p0_values)
 
+    backend_write_interval = int(backend_write_interval)
+    if backend_write_interval < 1:
+        raise ValueError("backend_write_interval must be at least 1.")
+    backend_flush_interval = int(backend_flush_interval)
+    if backend_flush_interval < 1:
+        raise ValueError("backend_flush_interval must be at least 1.")
+    if stretch_move_a is not None:
+        stretch_move_a = float(stretch_move_a)
+
     if copy_existing_h5_before_start:
         _copy_existing_h5_before_start(output_h5_file)
 
     resume_existing = resume and os.path.exists(output_h5_file)
-    backend = emcee.backends.HDFBackend(output_h5_file)
+    if backend_flush_interval > 1:
+        backend = BufferedHDFBackend(
+            output_h5_file, flush_interval=backend_flush_interval
+        )
+    else:
+        backend = emcee.backends.HDFBackend(output_h5_file)
 
     if resume_existing and backend.iteration > 0:
         if backend.shape != (nwalkers, ndim):
@@ -320,10 +426,18 @@ def run_mcmc(
             )
         pos = backend.get_last_sample()
         nsteps_to_run = max(0, nsteps - backend.iteration)
-        print(
-            f"Resuming {output_h5_file} from iteration {backend.iteration}; "
-            f"running {nsteps_to_run} additional steps to reach {nsteps}."
-        )
+        if backend_write_interval > 1:
+            proposal_steps_to_run = nsteps_to_run * backend_write_interval
+            print(
+                f"Resuming {output_h5_file} from iteration {backend.iteration}; "
+                f"running {nsteps_to_run} additional saved samples "
+                f"({proposal_steps_to_run} proposal steps) to reach {nsteps}."
+            )
+        else:
+            print(
+                f"Resuming {output_h5_file} from iteration {backend.iteration}; "
+                f"running {nsteps_to_run} additional steps to reach {nsteps}."
+            )
     else:
         backend.reset(nwalkers, ndim)
         pos = p0_values + 1e-3 * np.random.randn(nwalkers, ndim)
@@ -336,10 +450,32 @@ def run_mcmc(
     )
 
     with Pool(processes=pool_processes) as pool:
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, mcmc.log_prob, 
-            args=args, pool=pool, backend=backend)
+        sampler_kwargs = {"args": args, "pool": pool, "backend": backend}
+        if stretch_move_a is not None:
+            sampler_kwargs["moves"] = emcee.moves.StretchMove(a=stretch_move_a)
+            print(f"Using emcee StretchMove(a={stretch_move_a}).")
+        sampler = emcee.EnsembleSampler(
+            nwalkers, ndim, mcmc.log_prob, **sampler_kwargs
+        )
         if nsteps_to_run > 0:
-            sampler.run_mcmc(pos, nsteps_to_run, progress=True)
+            if backend_write_interval > 1:
+                print(
+                    f"Saving one HDF5 sample every {backend_write_interval} "
+                    "proposal steps."
+                )
+            if backend_flush_interval > 1:
+                print(
+                    f"Flushing buffered HDF5 samples every "
+                    f"{backend_flush_interval} saved steps."
+                )
+            sampler.run_mcmc(
+                pos,
+                nsteps_to_run,
+                progress=True,
+                thin_by=backend_write_interval,
+            )
+            if hasattr(backend, "flush"):
+                backend.flush()
 
     return sampler, p_keys
 

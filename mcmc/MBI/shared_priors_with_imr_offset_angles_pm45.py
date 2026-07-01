@@ -6,10 +6,12 @@ import numpy as np
 TWOPI = 2 * np.pi
 ANGLE_MIN_DEG = -45.0
 ANGLE_MAX_DEG = 45.0
+OPTICS_THETA_MIN_DEG = -90.0
+OPTICS_THETA_MAX_DEG = 90.0
 
 
 def build_shared_bounds():
-    """Shared hard bounds for MBI runs with IMR offset and +/-45 degree angles."""
+    """Shared hard bounds for MBI runs with IMR offset and PM45 angles."""
     return {
         "dichroic": {
             "phi": (-TWOPI, TWOPI),
@@ -23,7 +25,7 @@ def build_shared_bounds():
         "optics": {
             "phi": (-TWOPI, TWOPI),
             "epsilon": (0.0, 1.0),
-            "theta": (ANGLE_MIN_DEG, ANGLE_MAX_DEG),
+            "theta": (OPTICS_THETA_MIN_DEG, OPTICS_THETA_MAX_DEG),
         },
         "image_rotator": {
             "phi": (0.0, TWOPI),
@@ -113,10 +115,12 @@ def prepare_p0_for_shared_priors(p0, bounds):
     """
     Return a p0 copy that satisfies the shared hard prior bounds.
 
-    Phase-like ``phi`` values are wrapped by 2*pi. The dichroic and optics
-    orientation angles are represented in the requested [-45, 45] degree range
-    using 90-degree periodic wrapping. Values very close to a hard boundary are
-    nudged just inside so the initial walker scatter starts with finite prior.
+    Phase-like ``phi`` values are wrapped by 2*pi. Dichroic orientation angles
+    are represented in the requested [-45, 45] degree range using 90-degree
+    periodic wrapping. Optics orientation angles use the wider [-90, 90] range
+    from the scipy-minimize starts and are not silently reparameterized. Values
+    very close to a hard boundary are nudged just inside so the initial walker
+    scatter starts with finite prior.
     """
     adjusted_p0 = copy.deepcopy(p0)
     adjustments = []
@@ -141,7 +145,7 @@ def prepare_p0_for_shared_priors(p0, bounds):
                         adjustments.append(
                             (f"{component}.{param}", value, adjusted_value, low, high)
                         )
-                elif component in {"dichroic", "optics"} and param == "theta":
+                elif component == "dichroic" and param == "theta":
                     wrapped = _wrap_to_bounds(adjusted_value, low, high, 90.0)
                     if _in_bounds(wrapped, low, high):
                         adjusted_value = float(wrapped)
