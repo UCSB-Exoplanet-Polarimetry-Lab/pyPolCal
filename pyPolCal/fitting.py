@@ -488,10 +488,9 @@ def model(p, system_parameters, system_mm, configuration_list, s_in=None,
 
     return output_intensities
 
-def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=False):
+def calc_sem_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=False):
     """
-    Calculate s_res as in VLT SPHERE 2019 polcal appendix E for all CHARIS
-    wavelength bins. All system dict mueller matrices must be a function of wavelength
+    Calculate sem of model residuals. All system dict mueller matrices must be a function of wavelength
     except for what is in the configuration list. Expects all csv titles to follow format bin{bin}.csv.
 
     Parameters
@@ -512,17 +511,17 @@ def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=F
     Returns
     --------
     list
-        A list of s_res values for each wavelength bin.
+        A list of sem values for each wavelength bin.
 
     """
 
     # generate system mueller matrix
     system_mm_ = generate_system_mueller_matrix(system_dict)
-    s_res_by_wavelength = []
+    sem_wavelength = []
     # check if path is empty
     if not Path(csvdir).exists() or not any(Path(csvdir).glob('bin*.csv')):
         print(f"No CSV files found in {csvdir}")
-        return s_res_by_wavelength
+        return sem_wavelength
     for csv in sorted(
     Path(csvdir).glob('bin*.csv'),
     key=lambda p: int(p.stem[3:])
@@ -551,9 +550,10 @@ def calc_s_res_global(csvdir, system_dict,p0_dict, number_of_fitted_params, m3=F
         residuals = obs_diff*100 - modeled_diffs*100
         # Calculate s_res
         s_res = np.sqrt(np.sum(residuals**2)/(len(obs_diff)-number_of_fitted_params))
-        s_res_by_wavelength.append(s_res)
+        sem = s_res/np.sqrt(len(obs_diff))
+        sem_wavelength.append(sem)
 
-    return s_res_by_wavelength
+    return sem_wavelength
 
 def calc_polarimetric_accuracy(s_abs, s_rel, p, chi_deg):
     """

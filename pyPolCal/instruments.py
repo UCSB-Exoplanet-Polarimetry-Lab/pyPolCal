@@ -61,7 +61,7 @@ def fit_CHARIS_Mueller_matrix_by_bin(csv_path, wavelength_bin, new_config_dict_p
     fig : MatPlotLib figure object
     ax : MatPlotLib axis object
     s_res : float
-      The polarimetric accuracy as defined in appendix E of van Holstein et al. 2020.
+      The corrected sample standard deviation of residuals
     """
     # Check file paths
     filepath = Path(csv_path)
@@ -272,7 +272,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs(csv_path, wavelength_bin, new_config_di
     fig : MatPlotLib figure object
     ax : MatPlotLib axis object
     s_res : float
-      The polarimetric accuracy as defined in appendix E of van Holstein et al. 2020.
+      The corrected sample standard deviation of residuals
     """
     # Check file paths
     filepath = Path(csv_path)
@@ -494,7 +494,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
     fig : MatPlotLib figure object
     ax : MatPlotLib axis object
     s_res : float
-      The polarimetric accuracy as defined in appendix E of van Holstein et al. 2020.
+      The corrected sample standard deviation of residuals.
     """
     # Check file paths
     filepath = Path(csv_path)
@@ -520,13 +520,12 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
     #configuration_list = configuration_list 
 
     # Loading in past fits 
-    offset_imr = -0.4506# derotator offset
-    offset_hwp = -1.119# HWP offset
-    offset_cal = -0.5905 # calibration polarizer offset
+    offset_imr = -2.331e-02# derotator offset
+    offset_hwp = -3.807e-02# HWP offset
+    offset_cal = 2.563e-02 # calibration polarizer offset
     imr_theta = 0 # placeholder 
     hwp_theta = 0 # placeholder
-    imr_phi = IMR_retardance(wavelength_bins,259.11814)[wavelength_bin]
-    hwp_phi = HWP_retardance(wavelength_bins,1.636,1.278)[wavelength_bin]
+    hwp_phi = HWP_retardance(wavelength_bins,1.653,1.291)[wavelength_bin]
     epsilon_cal = 0
     m3_phi = M3_retardance(wavelength_bins[wavelength_bin])
     m3_epsilon = M3_diattenuation(wavelength_bins[wavelength_bin])
@@ -549,7 +548,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
                 "tag": "internal",
             },
             "image_rotator" : {
-                "type" : "elliptical_IMR_function",
+                "type" : "fitted_derotator_function_12_28_2025",
                 "properties" : {"wavelength": wavelength_bins[wavelength_bin], "theta": imr_theta, "delta_theta": offset_imr},
                 "tag": "internal",
             },
@@ -565,7 +564,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
 
             "lp" :{
                 "type" : "diattenuator_retarder_function",
-                "properties" : {"epsilon": epsilon_cal, "delta_theta": offset_cal,"theta":90},
+                "properties" : {"epsilon": epsilon_cal, "delta_theta": offset_cal,"theta":0},
                 "tag": "internal",
             },
 }
@@ -583,20 +582,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_nbs_unpol(csv_path, wavelength_bin, new_con
 
     # Define some bounds
     # MODIFY THIS IF YOU WANT TO CHANGE PARAMETERS, ADD NEW BOUNDS OR CHANGE THEM
-    offset_bounds = (-5,5)
-    hwpstd = 0.1*np.abs(hwp_phi)
-    hwp_phi_bounds = (hwp_phi-hwpstd, hwp_phi+hwpstd)
-    imrstd = 0.1*np.abs(imr_phi)
-    imr_phi_bounds = (imr_phi-imrstd, imr_phi+imrstd)
-    #imrostd = 0.1*np.abs(offset_imr)
-    #offset_imr_bounds = (offset_imr-imrostd, offset_imr+imrostd)
-    #hwpostd = 0.1*np.abs(offset_hwp)
-    #offset_hwp_bounds = (offset_hwp-hwpostd, offset_hwp+hwpostd)
-    epsilon_cal_bounds = (-1,1)
-    #calostd = 0.1 *np.abs(offset_cal)
-    #offset_cal_bounds = (-15, 15)
-    dichroic_phi_bounds = (0,np.pi)
-    ret_bounds = (0,2*np.pi)
+
 
     # Minimize the system Mueller matrix using the interleaved values and standard deviations
  
@@ -705,7 +691,7 @@ def fit_CHARIS_Mueller_matrix_by_bin_pickoff(csv_path, wavelength_bin, new_confi
     fig : MatPlotLib figure object
     ax : MatPlotLib axis object
     s_res : float
-      The polarimetric accuracy as defined in appendix E of van Holstein et al. 2020.
+      The corrected sample standard deviation of residuals.
     """
     # Check file paths
     filepath = Path(csv_path)
@@ -923,7 +909,7 @@ def fit_CHARIS_mueller_matrix_by_bin_m3(csv_path, wavelength_bin, new_config_dic
     fig : MatPlotLib figure object
     ax : MatPlotLib axis object
     s_res : float
-      The polarimetric accuracy of the fit, calculated as the standard deviation of the residuals.
+      The corrected sample standard deviation of residuals.
     """
     # Check file paths
     filepath = Path(csv_path)
