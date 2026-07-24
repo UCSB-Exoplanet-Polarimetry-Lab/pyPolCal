@@ -56,6 +56,6 @@ pyPolCal/
    │── utils.py     # Helper functions
    │── CHARIS/      # CHARIS data and fitting notebooks 
    │── custom_mms/ # User-defined custom Mueller matrix component functions (used for MCMC)
-   |── tutorial_notebooks/ # Fitting tutorials
-   │── VAMPIRES/    # Source code for Zhang+ 2024 SPIE polcal proceeding
+   |── tutorial_notebooks/ # Fitting tutorials and source code for Mcintosh+ 2026 SPIE SCExAO/CHARIS polcal proceeding
+   │── VAMPIRES/    # Source code for Zhang+ 2024 SPIE SCExAO/VAMPIRES polcal proceeding
 ```
