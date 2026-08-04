@@ -430,8 +430,9 @@ def read_csv(file_path, mode= 'standard'):
 
 def read_csv_physical_model_all_bins(csv_dir,m3=False):
     """
-    Does the same thing as read_csv() but reads all 22 csvs written
-    in a directory for all 22 CHARIS wavelength bins and puts everything into one array.
+    Does the same thing as read_csv() but reads 20 csvs written
+    in a directory for 20 CHARIS wavelength bins and puts everything into one array. Note that we throw out
+    wavelength bins 21 and 22 due to noise as of August 2026.
     Also adds wavelength bin to the configuration dictionary for use with custom
     pyMuellerMat common mm functions. 
 
@@ -439,7 +440,7 @@ def read_csv_physical_model_all_bins(csv_dir,m3=False):
     -----------
     csv_dir : Path or str
         The directory where the csv files are stored. Will check for bins in the title
-        and for 22 files.
+        and for 22 files (22 wavelength bins should exist).
 
     m3 : bool, optional
         Adds necessary parameters to the config dict to fit m3's physical model
@@ -479,14 +480,14 @@ def read_csv_physical_model_all_bins(csv_dir,m3=False):
     interleaved_stds_all = []
     configuration_list_all = []
     if m3 is False:
-        for file in sorted_files:
-            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='wavelength')
+        for bin in range(20):
+            interleaved_values, interleaved_stds, configuration_list= read_csv(sorted_files[bin], mode='wavelength')
             interleaved_values_all = np.append(interleaved_values_all, interleaved_values)
             interleaved_stds_all = np.append(interleaved_stds_all, interleaved_stds)
             configuration_list_all.extend(configuration_list)
     if m3 is True:
-        for file in sorted_files:
-            interleaved_values, interleaved_stds, configuration_list= read_csv(file, mode='m3_mcmc')
+        for bin in range(20):
+            interleaved_values, interleaved_stds, configuration_list= read_csv(sorted_files[bin], mode='m3_mcmc')
             interleaved_values_all = np.append(interleaved_values_all, interleaved_values)
             interleaved_stds_all = np.append(interleaved_stds_all, interleaved_stds)
             configuration_list_all.extend(configuration_list)
