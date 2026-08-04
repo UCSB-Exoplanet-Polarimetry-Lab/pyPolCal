@@ -54,8 +54,8 @@ pyPolCal/
    │── on_sky.py     # CSV/fitting tools for unpolarized or polarized standard star calibration
    │── plotting.py     # Plotting functions
    │── utils.py     # Helper functions
-   │── CHARIS/      # CHARIS data and fitting notebooks 
+   │── CHARIS/      # CHARIS fitting notebooks, some source code for Mcintosh+ 2026 SPIE SCExAO/CHARIS polcal proceeding
    │── custom_mms/ # User-defined custom Mueller matrix component functions (used for MCMC)
-   |── tutorial_notebooks/ # Fitting tutorials
-   │── VAMPIRES/    # Source code for Zhang+ 2024 SPIE polcal proceeding
+   |── tutorial_notebooks/ # Fitting tutorials and most source code for Mcintosh+ 2026 SPIE SCExAO/CHARIS polcal proceeding
+   │── VAMPIRES/    # Source code for Zhang+ 2024 SPIE SCExAO/VAMPIRES polcal proceeding
 ```
